@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Holiday Selfy Kiosk</title>
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body data-flow="idle">
+        <div id="app" class="app-shell">
+            <div class="video-stage" id="videoStage">
+                <button
+                    id="cornerSettingsBtn"
+                    class="corner-settings-btn"
+                    aria-label="Settings shortcut"
+                ></button>
+                <video
+                    id="idleVideo"
+                    class="stage-video idle"
+                    playsinline
+                    muted
+                    loop
+                ></video>
+                <video
+                    id="mainVideo"
+                    class="stage-video main"
+                    playsinline
+                ></video>
+        <div id="previewRegion" class="preview-region hidden">
+          <video id="webcamPreview" autoplay muted playsinline></video>
+        </div>
+            </div>
+
+            <div id="resultPanel" class="result-panel hidden">
+                <div class="result-media">
+                    <img id="resultPhoto" alt="Your photo" />
+                </div>
+                <div class="share-panel">
+                    <p class="share-title">
+                        Scan or print to take your photo with you
+                    </p>
+                    <img id="qrPreview" class="qr-preview" alt="QR code" />
+                    <a
+                        id="shareLink"
+                        class="share-link"
+                        target="_blank"
+                        rel="noreferrer"
+                    ></a>
+                    <div class="result-actions">
+                        <button id="printBtn">Print</button>
+                        <button id="restartBtn" class="ghost-btn">
+                            Start Over
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="messagePanel" class="message-panel hidden">
+                <p id="messageText"></p>
+                <button id="messageSettingsBtn" class="ghost-btn">
+                    Open Settings
+                </button>
+            </div>
+        </div>
+
+        <script src="./app.js"></script>
+    </body>
+</html>

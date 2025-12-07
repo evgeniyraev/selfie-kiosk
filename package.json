@@ -1,0 +1,24 @@
+{
+  "name": "christmass-selfy",
+  "version": "0.1.0",
+  "description": "Configurable holiday kiosk with selfie capture workflow powered by Electron.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "cross-env NODE_ENV=development electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "kiosk": "cross-env NODE_ENV=production electron ."
+  },
+  "keywords": [
+    "kiosk",
+    "electron"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.6"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

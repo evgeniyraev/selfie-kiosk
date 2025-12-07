@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="settings-shell">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">Configuration</p>
+          <h1>Interactive Selfy Booth</h1>
+        </div>
+        <div class="header-actions">
+          <button id="previewFlowBtn" class="ghost">Preview flow</button>
+          <button id="saveBtn" class="primary">Save</button>
+        </div>
+      </header>
+
+      <main class="settings-grid">
+        <section class="card">
+          <h2>Media Sources</h2>
+          <div class="field">
+            <label>Idle video</label>
+            <div class="file-row">
+              <input id="idleVideoInput" type="text" readonly />
+              <button id="idleVideoBrowse">Browse…</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Main experience video</label>
+            <div class="file-row">
+              <input id="mainVideoInput" type="text" readonly />
+              <button id="mainVideoBrowse">Browse…</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Share base URL</label>
+            <input id="shareBaseInput" type="url" placeholder="https://example.com/events/christmas" />
+            <small>This is combined with a timestamp to form the QR link.</small>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Santa overlays</h2>
+          <p class="helper">Upload PNGs with transparent backgrounds to decorate captured selfies.</p>
+          <div id="overlayList" class="overlay-list"></div>
+          <button id="addOverlayBtn">Add overlay images</button>
+        </section>
+
+        <section class="card span-columns preview-card">
+          <div class="section-header">
+            <h2>Camera preview placement</h2>
+            <p>Drag each of the four handles to map the live feed onto your video surface.</p>
+          </div>
+          <div class="preview-body">
+            <div class="stage-wrapper" id="stageWrapper">
+              <video id="stageVideo" muted playsinline></video>
+              <svg id="quadOverlay" class="quad-overlay">
+                <polygon id="quadPolygon" points="" />
+              </svg>
+              <div class="handles">
+                <button class="corner-handle" data-index="0" type="button" aria-label="Top left"></button>
+                <button class="corner-handle" data-index="1" type="button" aria-label="Top right"></button>
+                <button class="corner-handle" data-index="2" type="button" aria-label="Bottom right"></button>
+                <button class="corner-handle" data-index="3" type="button" aria-label="Bottom left"></button>
+              </div>
+              <div id="settingsCameraOverlay" class="camera-overlay hidden">
+                <video id="settingsCameraOverlayVideo" autoplay muted playsinline></video>
+              </div>
+            </div>
+          </div>
+          <div class="preview-controls">
+            <div class="camera-overlay-controls">
+              <button id="startCameraOverlayBtn" type="button">Show live camera</button>
+              <button id="stopCameraOverlayBtn" type="button" disabled>Hide camera</button>
+              <small id="cameraOverlayStatus" class="helper">Camera overlay is off.</small>
+            </div>
+            <div class="player-controls">
+              <button id="playPauseBtn" type="button">Play</button>
+              <div class="timeline">
+                <input type="range" id="timelineRange" min="0" max="0" step="0.01" value="0" />
+                <div class="time-labels">
+                  <span id="currentTimeLabel">0:00</span>
+                  <span id="durationLabel">0:00</span>
+                </div>
+              </div>
+            </div>
+            <div class="preview-time-buttons">
+              <button id="setStartBtn" type="button" disabled>Use current time for preview start</button>
+              <button id="setEndBtn" type="button" disabled>Use current time for preview end</button>
+            </div>
+            <div class="time-controls">
+              <div class="field">
+                <label>Preview start time (ms)</label>
+                <input type="number" id="previewStartInput" min="0" step="100" />
+              </div>
+              <div class="field">
+                <label>Preview hide time (ms)</label>
+                <input type="number" id="previewEndInput" min="0" step="100" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Result screen timeout (ms)</label>
+              <input type="number" id="autoResetInput" min="5000" step="1000" />
+              <small>How long to show the final photo before returning to idle.</small>
+            </div>
+          </div>
+        </section>
+      </main>
+      <div id="saveToast" class="toast hidden">Settings saved</div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
