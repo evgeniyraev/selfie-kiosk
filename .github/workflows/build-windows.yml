@@ -24,6 +24,8 @@ jobs:
         run: npm install
 
       - name: Build Windows package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:win
 
       - name: Upload installer artifact
