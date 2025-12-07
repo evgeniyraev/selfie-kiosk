@@ -6,7 +6,8 @@
   "scripts": {
     "start": "cross-env NODE_ENV=development electron .",
     "dev": "cross-env NODE_ENV=development electron .",
-    "kiosk": "cross-env NODE_ENV=production electron ."
+    "kiosk": "cross-env NODE_ENV=production electron .",
+    "build:win": "electron-builder --win"
   },
   "keywords": [
     "kiosk",
@@ -16,9 +17,26 @@
   "license": "ISC",
   "devDependencies": {
     "cross-env": "^10.1.0",
-    "electron": "^39.2.6"
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "qrcode": "^1.5.4"
+  },
+  "build": {
+    "appId": "com.christmass.selfy",
+    "productName": "Christmass Selfy",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }
