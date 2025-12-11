@@ -317,8 +317,7 @@
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
 
-    const targetWidth = 1920;
-    const targetHeight = 1080;
+    const { width: targetWidth, height: targetHeight } = getCaptureCanvasSize();
     canvas.width = targetWidth;
     canvas.height = targetHeight;
 
@@ -328,9 +327,9 @@
       ctx.translate(targetWidth, 0);
       ctx.scale(-1, 1);
     }
-    const scale = Math.min(
+    const scale = Math.max(
       targetWidth / (video.videoWidth || targetWidth),
-      targetHeight / (video.videoHeight || targetHeight)
+      targetHeight / (video.videoHeight || targetHeight),
     );
     const drawWidth = (video.videoWidth || targetWidth) * scale;
     const drawHeight = (video.videoHeight || targetHeight) * scale;
@@ -349,7 +348,7 @@
     if (overlayPath) {
       try {
         const overlayImage = await loadImageFromPath(overlayPath);
-        ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
+        drawCoverImage(ctx, overlayImage, targetWidth, targetHeight);
       } catch (error) {
         console.warn("Unable to load overlay", overlayPath, error);
       }
@@ -773,21 +772,27 @@ const createPrintComposition = async () => {
   ctx.fillRect(0, 0, width, height);
 
   const photo = await loadImage(state.lastPhotoDataUrl);
-  const scale = Math.max(width / photo.width, height / photo.height);
-  const drawWidth = photo.width * scale;
-  const drawHeight = photo.height * scale;
-  const offsetX = (width - drawWidth) / 2;
-  const offsetY = (height - drawHeight) / 2;
-
-  ctx.drawImage(photo, offsetX, offsetY, drawWidth, drawHeight);
+  drawCoverImage(ctx, photo, width, height);
 
   return canvas.toDataURL("image/png");
 };
 
-const getPrintCanvasSize = () => {
+const getPrinterDimensions = () => {
   const printer = state.config?.printer || {};
-  const widthMm = printer.paperWidthMm || 152;
-  const heightMm = printer.paperHeightMm || 102;
+  const widthMm = printer.paperWidthMm || 150;
+  const heightMm = printer.paperHeightMm || 100;
+  return { widthMm, heightMm };
+};
+
+const getCaptureCanvasSize = () => {
+  const { widthMm, heightMm } = getPrinterDimensions();
+  const baseWidth = 3000;
+  const baseHeight = Math.max(1000, Math.round((heightMm / widthMm) * baseWidth));
+  return { width: baseWidth, height: baseHeight };
+};
+
+const getPrintCanvasSize = () => {
+  const { widthMm, heightMm } = getPrinterDimensions();
   const mmToPx = 11.811; // approx 300 DPI
   return {
     width: Math.round(widthMm * mmToPx),
@@ -803,6 +808,18 @@ const loadImage = (src) => {
     image.onerror = reject;
     image.src = src;
   });
+};
+
+const drawCoverImage = (ctx, image, targetWidth, targetHeight) => {
+  if (!ctx || !image) {
+    return;
+  }
+  const scale = Math.max(targetWidth / image.width, targetHeight / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+  const offsetX = (targetWidth - drawWidth) / 2;
+  const offsetY = (targetHeight - drawHeight) / 2;
+  ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
 };
 
 const computePerspectiveMatrix = (points, width, height) => {

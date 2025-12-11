@@ -270,6 +270,7 @@ const printImage = async (imageDataUrl, printer) => {
         silent: true,
         deviceName: printer.deviceName,
         printBackground: true,
+        landscape: widthMm >= heightMm,
         margins: {
           marginType: "none",
         },
