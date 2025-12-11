@@ -11,11 +11,19 @@ const imageFilters = [
 contextBridge.exposeInMainWorld('settingsAPI', {
   loadConfig: () => ipcRenderer.invoke('config:read'),
   saveConfig: (payload) => ipcRenderer.invoke('config:write', payload),
+  resetConfig: () => ipcRenderer.invoke('config:reset'),
   selectVideo: async () => {
     const [selection] = await ipcRenderer.invoke('dialog:select', {
       filters: videoFilters
     });
     return selection || '';
+  },
+  selectVideos: async () => {
+    const selections = await ipcRenderer.invoke('dialog:select', {
+      allowMultiple: true,
+      filters: videoFilters
+    });
+    return selections || [];
   },
   selectImages: async () => {
     const selections = await ipcRenderer.invoke('dialog:select', {
@@ -25,5 +33,8 @@ contextBridge.exposeInMainWorld('settingsAPI', {
     return selections || [];
   },
   reopenKioskFlow: () => ipcRenderer.send('kiosk:reset-flow'),
-  focusSettings: () => ipcRenderer.send('settings:show')
+  focusSettings: () => ipcRenderer.send('settings:show'),
+  onSheetsUpdate: (callback) => {
+    ipcRenderer.on('printer:sheets', (_event, value) => callback(value));
+  }
 });

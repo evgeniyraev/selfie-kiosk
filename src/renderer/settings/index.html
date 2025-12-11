@@ -14,6 +14,7 @@
           <h1>Interactive Selfy Booth</h1>
         </div>
         <div class="header-actions">
+          <button id="resetBtn" class="ghost danger">Reset to defaults</button>
           <button id="previewFlowBtn" class="ghost">Preview flow</button>
           <button id="saveBtn" class="primary">Save</button>
         </div>
@@ -21,21 +22,21 @@
 
       <main class="settings-grid">
         <section class="card">
-          <h2>Media Sources</h2>
-          <div class="field">
-            <label>Idle video</label>
-            <div class="file-row">
-              <input id="idleVideoInput" type="text" readonly />
-              <button id="idleVideoBrowse">Browse…</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Main experience video</label>
-            <div class="file-row">
-              <input id="mainVideoInput" type="text" readonly />
-              <button id="mainVideoBrowse">Browse…</button>
-            </div>
-          </div>
+          <h2>Idle videos</h2>
+          <p class="helper">Add multiple portrait idle loops. The kiosk will pick one randomly whenever it returns to attract mode.</p>
+          <div id="idleVideoList" class="media-list"></div>
+          <button id="addIdleVideosBtn" class="card-action">Add idle videos</button>
+        </section>
+
+        <section class="card">
+          <h2>Main experience videos</h2>
+          <p class="helper">Upload the guided experience videos. A random one is selected for each capture session.</p>
+          <div id="mainVideoList" class="media-list"></div>
+          <button id="addMainVideosBtn" class="card-action">Add main experience videos</button>
+        </section>
+
+        <section class="card">
+          <h2>Sharing</h2>
           <div class="field">
             <label>Share base URL</label>
             <input id="shareBaseInput" type="url" placeholder="https://example.com/events/christmas" />
@@ -47,7 +48,31 @@
           <h2>Santa overlays</h2>
           <p class="helper">Upload PNGs with transparent backgrounds to decorate captured selfies.</p>
           <div id="overlayList" class="overlay-list"></div>
-          <button id="addOverlayBtn">Add overlay images</button>
+          <button id="addOverlayBtn" class="card-action">Add overlay images</button>
+        </section>
+
+        <section class="card">
+          <h2>Printer</h2>
+          <div class="field">
+            <label>Printer device name</label>
+            <input id="printerNameInput" type="text" placeholder="Mitsubishi CP-M1" />
+            <small>Use the system printer name exactly as it appears in the OS.</small>
+          </div>
+          <div class="printer-grid">
+            <div class="field">
+              <label>Paper width (mm)</label>
+              <input id="paperWidthInput" type="number" min="50" max="300" step="1" />
+            </div>
+            <div class="field">
+              <label>Paper height (mm)</label>
+              <input id="paperHeightInput" type="number" min="50" max="300" step="1" />
+            </div>
+            <div class="field">
+              <label>Sheets remaining</label>
+              <input id="sheetsInput" type="number" min="0" step="1" />
+            </div>
+          </div>
+          <small class="helper">Update sheets remaining whenever you reload the Mitsubishi CP-M1 cassette.</small>
         </section>
 
         <section class="card span-columns preview-card">
@@ -57,18 +82,20 @@
           </div>
           <div class="preview-body">
             <div class="stage-wrapper" id="stageWrapper">
+              <button id="toggleQuadEditBtn" class="quad-toggle" type="button">Enable handles</button>
               <video id="stageVideo" muted playsinline></video>
+              <div id="settingsCameraOverlay" class="camera-overlay hidden">
+                <video id="settingsCameraOverlayVideo" autoplay muted playsinline></video>
+              </div>
+              <img id="stageOverlayImage" class="stage-overlay hidden" alt="Overlay preview" />
               <svg id="quadOverlay" class="quad-overlay">
                 <polygon id="quadPolygon" points="" />
               </svg>
-              <div class="handles">
+              <div id="handlesLayer" class="handles">
                 <button class="corner-handle" data-index="0" type="button" aria-label="Top left"></button>
                 <button class="corner-handle" data-index="1" type="button" aria-label="Top right"></button>
                 <button class="corner-handle" data-index="2" type="button" aria-label="Bottom right"></button>
                 <button class="corner-handle" data-index="3" type="button" aria-label="Bottom left"></button>
-              </div>
-              <div id="settingsCameraOverlay" class="camera-overlay hidden">
-                <video id="settingsCameraOverlayVideo" autoplay muted playsinline></video>
               </div>
             </div>
           </div>
@@ -94,17 +121,21 @@
             </div>
             <div class="time-controls">
               <div class="field">
-                <label>Preview start time (ms)</label>
-                <input type="number" id="previewStartInput" min="0" step="100" />
+                <label>Preview frame rate (fps)</label>
+                <input type="number" id="previewFPSInput" min="1" max="240" step="1" />
               </div>
               <div class="field">
-                <label>Preview hide time (ms)</label>
-                <input type="number" id="previewEndInput" min="0" step="100" />
+                <label>Preview start frame</label>
+                <input type="number" id="previewStartInput" min="0" step="1" />
+              </div>
+              <div class="field">
+                <label>Preview hide frame</label>
+                <input type="number" id="previewEndInput" min="0" step="1" />
               </div>
             </div>
             <div class="field">
-              <label>Result screen timeout (ms)</label>
-              <input type="number" id="autoResetInput" min="5000" step="1000" />
+              <label>Result screen timeout (seconds)</label>
+              <input type="number" id="autoResetInput" min="5" step="1" />
               <small>How long to show the final photo before returning to idle.</small>
             </div>
           </div>

@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Windows package
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_SKIP_TOKENS: true
         run: npm run build:win
 
       - name: Upload installer artifact

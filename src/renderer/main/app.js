@@ -1,4 +1,6 @@
 (() => {
+  const SETTINGS_HOLD_MS = 5000;
+
   const state = {
     config: null,
     flow: "idle",
@@ -9,6 +11,12 @@
     lastPhotoDataUrl: null,
     shareLink: null,
     previewVisible: false,
+    isPrinting: false,
+    pendingOverlayPath: "",
+    currentIdleVideo: "",
+    currentMainVideo: "",
+    settingsHoldTimer: null,
+    isProduction: Boolean(window.kioskAPI?.isProduction),
   };
 
   const elements = {
@@ -18,6 +26,7 @@
     mainVideo: document.getElementById("mainVideo"),
     previewRegion: document.getElementById("previewRegion"),
     webcamPreview: document.getElementById("webcamPreview"),
+    previewOverlay: document.getElementById("previewOverlay"),
     resultPanel: document.getElementById("resultPanel"),
     resultPhoto: document.getElementById("resultPhoto"),
     qrPreview: document.getElementById("qrPreview"),
@@ -28,6 +37,8 @@
     messagePanel: document.getElementById("messagePanel"),
     messageText: document.getElementById("messageText"),
     messageSettingsBtn: document.getElementById("messageSettingsBtn"),
+    sheetsLeft: document.getElementById("sheetsLeft"),
+    printStatus: document.getElementById("printStatus"),
   };
 
   const init = async () => {
@@ -38,6 +49,19 @@
     window.kioskAPI.onConfigUpdated((config) => {
       applyConfig(config);
     });
+
+    if (window.kioskAPI.onSheetsUpdate) {
+      window.kioskAPI.onSheetsUpdate((count) => {
+        if (!state.config) {
+          state.config = {};
+        }
+        state.config.printer = {
+          ...(state.config.printer || {}),
+          sheetsRemaining: count,
+        };
+        updateSheetDisplay();
+      });
+    }
 
     window.kioskAPI.onResetRequest(() => {
       resetFlow();
@@ -62,11 +86,18 @@
     });
 
     elements.restartBtn.addEventListener("click", () => resetFlow());
-    elements.printBtn.addEventListener("click", () => window.print());
+    elements.printBtn.addEventListener("click", () => handlePrint());
 
-    elements.cornerSettingsBtn.addEventListener("pointerdown", (event) =>
-      openSettings(event),
-    );
+    if (elements.cornerSettingsBtn) {
+      elements.cornerSettingsBtn.addEventListener("pointerdown", (event) =>
+        handleCornerPress(event),
+      );
+      ["pointerup", "pointerleave", "pointercancel"].forEach((type) => {
+        elements.cornerSettingsBtn.addEventListener(type, () => {
+          clearSettingsHoldTimer();
+        });
+      });
+    }
     elements.messageSettingsBtn.addEventListener("click", (event) =>
       openSettings(event),
     );
@@ -78,17 +109,26 @@
 
   const applyConfig = (config) => {
     state.config = config;
+    state.pendingOverlayPath = "";
+    state.currentIdleVideo = "";
+    state.currentMainVideo = "";
     const ready = hasValidConfig(config);
     toggleMessage(
       !ready,
       "Please finish configuring videos and overlays to start.",
     );
 
-    setMediaSource(elements.idleVideo, config.idleVideo);
-    setMediaSource(elements.mainVideo, config.mainVideo);
     elements.mainVideo.muted = false;
     elements.mainVideo.volume = 1;
     applyPreviewTransform();
+    updatePreviewOverlay();
+    updateSheetDisplay();
+    updatePrintButtonState();
+    setPrintStatus(
+      state.config?.printer?.deviceName
+        ? ""
+        : "Configure printer in Settings to enable printing.",
+    );
     resetFlow();
 
     if (ready) {
@@ -97,13 +137,20 @@
   };
 
   const hasValidConfig = (config) => {
-    return Boolean(
-      config &&
-        config.idleVideo &&
-        config.mainVideo &&
-        Array.isArray(config.santaOverlays) &&
-        config.santaOverlays.length > 0,
-    );
+    if (
+      !config ||
+      !Array.isArray(config.santaOverlays) ||
+      config.santaOverlays.length === 0
+    ) {
+      return false;
+    }
+    const idlePool = Array.isArray(config.idleVideos)
+      ? config.idleVideos.length
+      : 0;
+    const mainPool = Array.isArray(config.mainVideos)
+      ? config.mainVideos.length
+      : 0;
+    return idlePool > 0 && mainPool > 0;
   };
 
   const toggleMessage = (isVisible, text = "") => {
@@ -136,7 +183,14 @@
     }
 
     clearTimers();
+    if (!prepareMainVideoForFlow()) {
+      toggleMessage(true, "Add at least one main experience video to start.");
+      resetFlow();
+      return;
+    }
     setFlow("preparing");
+    state.pendingOverlayPath = pickOverlay();
+    updatePreviewOverlay();
     elements.mainVideo.currentTime = 0;
     elements.mainVideo.play().catch(() => {});
 
@@ -163,8 +217,14 @@
     clearTimers();
     elements.mainVideo.pause();
     elements.mainVideo.currentTime = 0;
+    state.lastPhotoDataUrl = null;
+    state.pendingOverlayPath = "";
+    updatePreviewOverlay();
     setPreviewVisibility(false);
+    prepareIdleVideo({ forceDifferent: true });
     setFlow("idle");
+    updatePrintButtonState();
+    setPrintStatus("");
   };
 
   const clearTimers = () => {
@@ -259,7 +319,9 @@
     );
     ctx.restore();
 
-    const overlayPath = pickOverlay();
+    const overlayPath = state.pendingOverlayPath || pickOverlay();
+    state.pendingOverlayPath = "";
+    updatePreviewOverlay();
     if (overlayPath) {
       try {
         const overlayImage = await loadImageFromPath(overlayPath);
@@ -304,6 +366,7 @@
     }
 
     setFlow("result");
+    updatePrintButtonState();
     const autoResetMs = Math.max(
       5000,
       state.config?.resultScreen?.autoResetMs ?? 20000,
@@ -311,21 +374,15 @@
     state.autoResetTimer = setTimeout(() => resetFlow(), autoResetMs);
   };
 
-  const buildShareLink = () => {
-    const base = state.config?.shareBaseUrl || "https://example.com/selfy";
-    const sanitizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
-    return `${sanitizedBase}/${Date.now()}`;
-  };
+const buildShareLink = () => {
+  const base = state.config?.shareBaseUrl || "https://example.com/selfy";
+  const sanitizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  return `${sanitizedBase}/${Date.now()}`;
+};
 
-  const loadImageFromPath = (filePath) => {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.src = toFileSrc(filePath);
-    return new Promise((resolve, reject) => {
-      image.onload = () => resolve(image);
-      image.onerror = reject;
-    });
-  };
+const loadImageFromPath = (filePath) => {
+  return loadImage(toFileSrc(filePath));
+};
 
   const setMediaSource = (videoEl, filePath) => {
     if (!filePath) {
@@ -362,8 +419,8 @@
 
     elements.previewRegion.style.left = "0px";
     elements.previewRegion.style.top = "0px";
-    // elements.previewRegion.style.width = `${stageWidth}px`;
-    // elements.previewRegion.style.height = `${stageHeight}px`;
+    elements.previewRegion.style.width = `${stageWidth}px`;
+    elements.previewRegion.style.height = `${stageHeight}px`;
 
     const quad = state.config.previewQuad.map((point) => ({
       x: point.x * stageWidth,
@@ -378,20 +435,20 @@
     }
   };
 
-  const updateIdlePlayback = (shouldPlay) => {
-    if (!elements.idleVideo || !elements.idleVideo.src) {
-      return;
-    }
-    if (shouldPlay) {
-      elements.idleVideo.loop = true;
-      elements.idleVideo.muted = true;
-      elements.idleVideo.play().catch(() => {});
-    } else {
-      elements.idleVideo.pause();
-    }
-  };
+const updateIdlePlayback = (shouldPlay) => {
+  if (!elements.idleVideo || !elements.idleVideo.src) {
+    return;
+  }
+  if (shouldPlay) {
+    elements.idleVideo.loop = true;
+    elements.idleVideo.muted = true;
+    elements.idleVideo.play().catch(() => {});
+  } else {
+    elements.idleVideo.pause();
+  }
+};
 
-  const getPreviewWindow = () => {
+const getPreviewWindow = () => {
     const visibility = state.config?.previewVisibility || {};
     const startMs = Math.max(0, visibility.startMs ?? 4000);
     const endMs = Math.max(
@@ -401,10 +458,212 @@
     return { startMs, endMs };
   };
 
-  const setPreviewVisibility = (isVisible) => {
-    state.previewVisible = isVisible;
-    elements.previewRegion.classList.toggle("hidden", !isVisible);
+const setPreviewVisibility = (isVisible) => {
+  state.previewVisible = isVisible;
+  elements.previewRegion.classList.toggle("hidden", !isVisible);
+  updatePreviewOverlay();
+};
+
+const updatePreviewOverlay = () => {
+  if (!elements.previewOverlay) {
+    return;
+  }
+  const hasOverlay =
+    state.previewVisible && Boolean(state.pendingOverlayPath);
+  if (!hasOverlay) {
+    elements.previewOverlay.classList.add("hidden");
+    elements.previewOverlay.removeAttribute("src");
+    return;
+  }
+  elements.previewOverlay.src = toFileSrc(state.pendingOverlayPath);
+  elements.previewOverlay.classList.remove("hidden");
+};
+
+const prepareIdleVideo = ({ forceDifferent = false } = {}) => {
+  const pool = Array.isArray(state.config?.idleVideos)
+    ? state.config.idleVideos
+    : [];
+  if (!pool.length) {
+    state.currentIdleVideo = "";
+    setMediaSource(elements.idleVideo, "");
+    return;
+  }
+  let next = state.currentIdleVideo;
+  if (!next || (forceDifferent && pool.length > 1)) {
+    next = pickRandomMedia(pool, forceDifferent ? state.currentIdleVideo : null);
+  }
+  if (!next) {
+    state.currentIdleVideo = "";
+    setMediaSource(elements.idleVideo, "");
+    return;
+  }
+  if (next !== state.currentIdleVideo) {
+    state.currentIdleVideo = next;
+    setMediaSource(elements.idleVideo, next);
+  }
+};
+
+const prepareMainVideoForFlow = () => {
+  const pool = Array.isArray(state.config?.mainVideos)
+    ? state.config.mainVideos
+    : [];
+  if (!pool.length) {
+    state.currentMainVideo = "";
+    setMediaSource(elements.mainVideo, "");
+    return false;
+  }
+  const next = pickRandomMedia(
+    pool,
+    pool.length > 1 ? state.currentMainVideo : null,
+  );
+  if (!next) {
+    state.currentMainVideo = "";
+    setMediaSource(elements.mainVideo, "");
+    return false;
+  }
+  const shouldReload = next !== state.currentMainVideo;
+  state.currentMainVideo = next;
+  if (shouldReload) {
+    setMediaSource(elements.mainVideo, next);
+  } else {
+    elements.mainVideo.pause();
+    elements.mainVideo.currentTime = 0;
+  }
+  return true;
+};
+
+const pickRandomMedia = (pool = [], exclude) => {
+  if (!pool.length) {
+    return "";
+  }
+  let candidates = pool;
+  if (exclude) {
+    const filtered = pool.filter((item) => item !== exclude);
+    if (filtered.length) {
+      candidates = filtered;
+    }
+  }
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index] || "";
+};
+
+const updateSheetDisplay = () => {
+  const sheets = state.config?.printer?.sheetsRemaining;
+  if (elements.sheetsLeft) {
+    elements.sheetsLeft.textContent =
+      typeof sheets === "number" ? sheets : "--";
+  }
+};
+
+const updatePrintButtonState = () => {
+  const hasPrinter = Boolean(state.config?.printer?.deviceName);
+  const hasPhoto = Boolean(state.lastPhotoDataUrl);
+  elements.printBtn.disabled = !hasPrinter || !hasPhoto || state.isPrinting;
+};
+
+const handlePrint = async () => {
+  if (!state.lastPhotoDataUrl || state.isPrinting) {
+    return;
+  }
+  const hasPrinter = Boolean(state.config?.printer?.deviceName);
+  if (!hasPrinter) {
+    setPrintStatus("Configure the printer in Settings first.");
+    return;
+  }
+
+  try {
+    state.isPrinting = true;
+    updatePrintButtonState();
+    setPrintStatus("Sending to printer…");
+    const composition = await createPrintComposition();
+    await window.kioskAPI.printPhoto(composition);
+    setPrintStatus("Print job sent.");
+  } catch (error) {
+    console.error("Print failed", error);
+    setPrintStatus(
+      error?.message || "Unable to print. Check printer connection.",
+    );
+  } finally {
+    state.isPrinting = false;
+    updatePrintButtonState();
+  }
+};
+
+const setPrintStatus = (message) => {
+  if (!elements.printStatus) {
+    return;
+  }
+  elements.printStatus.textContent = message || "";
+};
+
+const handleCornerPress = (event) => {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!state.isProduction) {
+    openSettings(event);
+    return;
+  }
+  startSettingsHoldTimer();
+};
+
+const startSettingsHoldTimer = () => {
+  clearSettingsHoldTimer();
+  state.settingsHoldTimer = setTimeout(() => {
+    state.settingsHoldTimer = null;
+    openSettings();
+  }, SETTINGS_HOLD_MS);
+};
+
+const clearSettingsHoldTimer = () => {
+  if (state.settingsHoldTimer) {
+    clearTimeout(state.settingsHoldTimer);
+    state.settingsHoldTimer = null;
+  }
+};
+
+const createPrintComposition = async () => {
+  const { width, height } = getPrintCanvasSize();
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  const photo = await loadImage(state.lastPhotoDataUrl);
+  const scale = Math.min(width / photo.width, height / photo.height);
+  const drawWidth = photo.width * scale;
+  const drawHeight = photo.height * scale;
+  const offsetX = (width - drawWidth) / 2;
+  const offsetY = (height - drawHeight) / 2;
+
+  ctx.drawImage(photo, offsetX, offsetY, drawWidth, drawHeight);
+
+  return canvas.toDataURL("image/png");
+};
+
+const getPrintCanvasSize = () => {
+  const printer = state.config?.printer || {};
+  const widthMm = printer.paperWidthMm || 152;
+  const heightMm = printer.paperHeightMm || 102;
+  const mmToPx = 11.811; // approx 300 DPI
+  return {
+    width: Math.round(widthMm * mmToPx),
+    height: Math.round(heightMm * mmToPx),
   };
+};
+
+const loadImage = (src) => {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+};
 
 const computePerspectiveMatrix = (points, width, height) => {
   if (!points || points.length !== 4) {

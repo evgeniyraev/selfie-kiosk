@@ -1,20 +1,28 @@
 (() => {
+  const DEFAULT_FRAME_RATE = 30;
+
   const state = {
     config: null,
     isDraggingRegion: false,
     dragHandleIndex: null,
     toastTimeout: null,
-    cameraStream: null
+    cameraStream: null,
+    previewVideoPath: "",
+    activePointerId: null,
+    activeHandleEl: null,
+    isAdjustingQuad: false
   };
 
   const qs = (selector) => document.querySelector(selector);
   const elements = {
-    idleInput: qs('#idleVideoInput'),
-    idleBrowse: qs('#idleVideoBrowse'),
-    mainInput: qs('#mainVideoInput'),
-    mainBrowse: qs('#mainVideoBrowse'),
     shareInput: qs('#shareBaseInput'),
+    previewFPSInput: qs('#previewFPSInput'),
+    idleVideoList: qs('#idleVideoList'),
+    mainVideoList: qs('#mainVideoList'),
+    addIdleVideosBtn: qs('#addIdleVideosBtn'),
+    addMainVideosBtn: qs('#addMainVideosBtn'),
     saveBtn: qs('#saveBtn'),
+    resetBtn: qs('#resetBtn'),
     previewFlowBtn: qs('#previewFlowBtn'),
     addOverlayBtn: qs('#addOverlayBtn'),
     overlayList: qs('#overlayList'),
@@ -25,6 +33,7 @@
     previewStartInput: qs('#previewStartInput'),
     previewEndInput: qs('#previewEndInput'),
     handles: Array.from(document.querySelectorAll('.corner-handle')),
+    handlesLayer: qs('#handlesLayer'),
     playPauseBtn: qs('#playPauseBtn'),
     timelineRange: qs('#timelineRange'),
     currentTimeLabel: qs('#currentTimeLabel'),
@@ -32,43 +41,56 @@
     setStartBtn: qs('#setStartBtn'),
     setEndBtn: qs('#setEndBtn'),
     autoResetInput: qs('#autoResetInput'),
+    printerNameInput: qs('#printerNameInput'),
+    paperWidthInput: qs('#paperWidthInput'),
+    paperHeightInput: qs('#paperHeightInput'),
+    sheetsInput: qs('#sheetsInput'),
     startCameraOverlayBtn: qs('#startCameraOverlayBtn'),
     stopCameraOverlayBtn: qs('#stopCameraOverlayBtn'),
     cameraOverlayStatus: qs('#cameraOverlayStatus'),
     cameraOverlay: qs('#settingsCameraOverlay'),
-    cameraOverlayVideo: qs('#settingsCameraOverlayVideo')
+    cameraOverlayVideo: qs('#settingsCameraOverlayVideo'),
+    stageOverlayImage: qs('#stageOverlayImage'),
+    toggleQuadEditBtn: qs('#toggleQuadEditBtn')
   };
+  const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
 
   const init = async () => {
     attachEvents();
     const config = await window.settingsAPI.loadConfig();
     state.config = config;
+    state.previewVideoPath = Array.isArray(config.mainVideos)
+      ? config.mainVideos[0] || ''
+      : '';
     ensurePreviewQuad();
     render();
+    if (window.settingsAPI.onSheetsUpdate) {
+      window.settingsAPI.onSheetsUpdate((count) => {
+        if (!state.config) {
+          return;
+        }
+        const printer = {
+          ...(state.config.printer || {})
+        };
+        printer.sheetsRemaining = Math.max(0, Number(count) || 0);
+        state.config.printer = printer;
+        renderPrinterConfig();
+      });
+    }
   };
 
   const attachEvents = () => {
-    elements.idleBrowse.addEventListener('click', async () => {
-      if (!state.config) {
-        return;
-      }
-      const filePath = await window.settingsAPI.selectVideo();
-      if (filePath) {
-        state.config.idleVideo = filePath;
-        render();
-      }
-    });
+    if (elements.addIdleVideosBtn) {
+      elements.addIdleVideosBtn.addEventListener('click', () => {
+        handleAddVideos('idle');
+      });
+    }
 
-    elements.mainBrowse.addEventListener('click', async () => {
-      if (!state.config) {
-        return;
-      }
-      const filePath = await window.settingsAPI.selectVideo();
-      if (filePath) {
-        state.config.mainVideo = filePath;
-        render();
-      }
-    });
+    if (elements.addMainVideosBtn) {
+      elements.addMainVideosBtn.addEventListener('click', () => {
+        handleAddVideos('main');
+      });
+    }
 
     elements.shareInput.addEventListener('input', (event) => {
       if (!state.config) {
@@ -99,6 +121,17 @@
       showToast();
     });
 
+    elements.resetBtn.addEventListener('click', async () => {
+      if (!window.confirm('Reset all saved settings?')) {
+        return;
+      }
+      state.config = await window.settingsAPI.resetConfig();
+      state.previewVideoPath = '';
+      ensurePreviewQuad();
+      render();
+      showToast('Settings reset to defaults');
+    });
+
     elements.previewFlowBtn.addEventListener('click', async () => {
       if (!state.config) {
         return;
@@ -122,13 +155,60 @@
       updatePreviewVisibility();
     });
 
-    elements.handles.forEach((handle) => {
-      handle.addEventListener('pointerdown', (event) => {
+    if (elements.previewFPSInput) {
+      elements.previewFPSInput.addEventListener('input', () => {
         if (!state.config) {
           return;
         }
+        const fps = clamp(
+          Number(elements.previewFPSInput.value) || DEFAULT_FRAME_RATE,
+          1,
+          240
+        );
+        state.config.previewVisibility = {
+          ...(state.config.previewVisibility || {}),
+          frameRate: fps
+        };
+        renderPreviewVisibility();
+      });
+    }
+
+    elements.printerNameInput.addEventListener('input', (event) => {
+      if (!state.config) {
+        return;
+      }
+      state.config.printer = {
+        ...(state.config.printer || {}),
+        deviceName: event.target.value
+      };
+    });
+
+    ['paperWidthInput', 'paperHeightInput', 'sheetsInput'].forEach((key) => {
+      elements[key].addEventListener('input', (event) => {
+        if (!state.config) {
+          return;
+        }
+        const printer = state.config.printer || {};
+        const value = Number(event.target.value) || 0;
+        if (key === 'paperWidthInput') {
+          printer.paperWidthMm = Math.max(50, value);
+        } else if (key === 'paperHeightInput') {
+          printer.paperHeightMm = Math.max(50, value);
+        } else {
+          printer.sheetsRemaining = Math.max(0, value);
+        }
+        state.config.printer = printer;
+        renderPrinterConfig();
+      });
+    });
+
+    elements.handles.forEach((handle) => {
+      handle.addEventListener('pointerdown', (event) => {
+        if (!state.config || !state.isAdjustingQuad) {
+          return;
+        }
         const index = Number(handle.dataset.index);
-        startHandleDrag(event, index);
+        startHandleDrag(event, index, handle);
       });
     });
 
@@ -136,12 +216,15 @@
       if (!state.config) {
         return;
       }
-      const value = Math.max(5000, Number(event.target.value) || defaultAutoReset());
+      const seconds = Math.max(
+        5,
+        Number(event.target.value) || secondsFromMs(defaultAutoReset())
+      );
       state.config.resultScreen = {
         ...(state.config.resultScreen || {}),
-        autoResetMs: value
+        autoResetMs: seconds * 1000
       };
-      event.target.value = value;
+      event.target.value = seconds;
     });
 
     window.addEventListener('pointermove', (event) => {
@@ -151,8 +234,13 @@
     });
 
     window.addEventListener('pointerup', () => {
+      if (state.activeHandleEl && state.activePointerId !== null) {
+        state.activeHandleEl.releasePointerCapture?.(state.activePointerId);
+      }
       state.isDraggingRegion = false;
       state.dragHandleIndex = null;
+      state.activePointerId = null;
+      state.activeHandleEl = null;
     });
 
     elements.startCameraOverlayBtn.addEventListener('click', () => {
@@ -197,20 +285,29 @@
 
     elements.setStartBtn.addEventListener('click', () => setPreviewTimeFromCurrent('start'));
     elements.setEndBtn.addEventListener('click', () => setPreviewTimeFromCurrent('end'));
+
+    if (elements.toggleQuadEditBtn) {
+      elements.toggleQuadEditBtn.addEventListener('click', toggleQuadEditing);
+    }
   };
 
   const render = () => {
     ensurePreviewQuad();
-    elements.idleInput.value = state.config.idleVideo || '';
-    elements.mainInput.value = state.config.mainVideo || '';
-    elements.shareInput.value = state.config.shareBaseUrl || '';
+    if (elements.shareInput) {
+      elements.shareInput.value = state.config.shareBaseUrl || '';
+    }
+    ensurePreviewVideoSelection();
+    renderVideoList('idle');
+    renderVideoList('main');
     renderOverlayList();
     renderQuad();
     renderPreviewVisibility();
     renderResultTimer();
+    renderPrinterConfig();
     updateCameraOverlayControls();
     updateStageMedia();
     syncTimelineMeta();
+    updateQuadEditState();
   };
 
   const renderOverlayList = () => {
@@ -222,6 +319,7 @@
       placeholder.textContent = 'No overlays selected yet.';
       placeholder.className = 'helper';
       elements.overlayList.appendChild(placeholder);
+      renderOverlayPreview();
       return;
     }
 
@@ -248,6 +346,155 @@
 
       elements.overlayList.appendChild(card);
     });
+
+    renderOverlayPreview();
+  };
+
+  const renderVideoList = (type) => {
+    const listEl =
+      type === 'idle' ? elements.idleVideoList : elements.mainVideoList;
+    if (!listEl || !state.config) {
+      return;
+    }
+    const key = type === 'idle' ? 'idleVideos' : 'mainVideos';
+    const videos = Array.isArray(state.config[key]) ? state.config[key] : [];
+    listEl.innerHTML = '';
+
+    if (!videos.length) {
+      const placeholder = document.createElement('p');
+      placeholder.className = 'helper';
+      placeholder.textContent =
+        type === 'idle'
+          ? 'No idle videos selected yet.'
+          : 'No main experience videos selected yet.';
+      listEl.appendChild(placeholder);
+      return;
+    }
+
+    videos.forEach((path, index) => {
+      listEl.appendChild(createMediaCard(type, path, index));
+    });
+  };
+
+  const createMediaCard = (type, path, index) => {
+    const card = document.createElement('div');
+    card.className = 'media-card';
+
+    const name = document.createElement('div');
+    name.className = 'media-name';
+    name.textContent = path.split(/[/\\]/).pop();
+    card.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'media-path';
+    meta.textContent = path;
+    card.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'media-actions';
+
+    if (type === 'main') {
+      const isActive = path === state.previewVideoPath;
+      const previewBtn = document.createElement('button');
+      previewBtn.textContent = isActive ? 'Previewing' : 'Show in preview';
+      previewBtn.disabled = isActive;
+      previewBtn.addEventListener('click', () => setPreviewVideo(path));
+      actions.appendChild(previewBtn);
+    }
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', () => removeVideoAtIndex(type, index));
+    actions.appendChild(removeBtn);
+
+    card.appendChild(actions);
+    return card;
+  };
+
+  const handleAddVideos = async (type) => {
+    if (!state.config || !window.settingsAPI?.selectVideos) {
+      return;
+    }
+    const files = await window.settingsAPI.selectVideos();
+    if (!files?.length) {
+      return;
+    }
+    const key = type === 'idle' ? 'idleVideos' : 'mainVideos';
+    const current = Array.isArray(state.config[key]) ? state.config[key] : [];
+    state.config[key] = mergeMediaLists(current, files);
+    if (type === 'main') {
+      ensurePreviewVideoSelection();
+    }
+    renderVideoList(type);
+    if (type === 'main') {
+      updateStageMedia();
+    }
+  };
+
+  const mergeMediaLists = (current = [], additions = []) => {
+    const next = Array.isArray(current) ? [...current] : [];
+    additions.forEach((file) => {
+      if (typeof file === 'string' && file && !next.includes(file)) {
+        next.push(file);
+      }
+    });
+    return next;
+  };
+
+  const removeVideoAtIndex = (type, index) => {
+    if (!state.config) {
+      return;
+    }
+    const key = type === 'idle' ? 'idleVideos' : 'mainVideos';
+    const list = Array.isArray(state.config[key]) ? state.config[key] : [];
+    if (index < 0 || index >= list.length) {
+      return;
+    }
+    list.splice(index, 1);
+    state.config[key] = list;
+    if (type === 'main') {
+      ensurePreviewVideoSelection();
+    }
+    renderVideoList(type);
+    if (type === 'main') {
+      updateStageMedia();
+    }
+  };
+
+  const ensurePreviewVideoSelection = () => {
+    const pool = Array.isArray(state.config?.mainVideos)
+      ? state.config.mainVideos
+      : [];
+    if (!pool.length) {
+      state.previewVideoPath = '';
+      return;
+    }
+    if (!state.previewVideoPath || !pool.includes(state.previewVideoPath)) {
+      state.previewVideoPath = pool[0];
+    }
+  };
+
+  const setPreviewVideo = (path) => {
+    if (!path || path === state.previewVideoPath) {
+      return;
+    }
+    state.previewVideoPath = path;
+    updateStageMedia();
+    updatePlayButton();
+  };
+
+  const renderOverlayPreview = () => {
+    if (!elements.stageOverlayImage) {
+      return;
+    }
+    const overlayPath = state.config?.santaOverlays?.[0];
+    if (!overlayPath) {
+      elements.stageOverlayImage.classList.add('hidden');
+      elements.stageOverlayImage.removeAttribute('src');
+      return;
+    }
+    elements.stageOverlayImage.src = fileToSrc(overlayPath);
+    elements.stageOverlayImage.classList.remove('hidden');
   };
 
   const renderQuad = () => {
@@ -277,13 +524,24 @@
       handle.style.top = `${point.y * 100}%`;
     });
 
-    updateCameraOverlayTransform(width, height);
+    const quadPx = quad.map((point) => ({
+      x: point.x * width,
+      y: point.y * height
+    }));
+    applyPreviewTransformToElement(elements.cameraOverlay, quadPx, width, height);
+    applyPreviewTransformToElement(elements.stageOverlayImage, quadPx, width, height);
   };
 
-  const startHandleDrag = (event, index) => {
+  const startHandleDrag = (event, index, handleEl) => {
     event.preventDefault();
+    if (!state.isAdjustingQuad) {
+      return;
+    }
     state.isDraggingRegion = true;
     state.dragHandleIndex = index;
+    state.activePointerId = event.pointerId;
+    state.activeHandleEl = handleEl;
+    handleEl?.setPointerCapture?.(event.pointerId);
     dragHandle(event);
   };
 
@@ -303,8 +561,13 @@
 
   const renderPreviewVisibility = () => {
     const visibility = state.config?.previewVisibility || {};
-    elements.previewStartInput.value = visibility.startMs ?? '';
-    elements.previewEndInput.value = visibility.endMs ?? '';
+    const startFrames = msToFrames(visibility.startMs ?? 0);
+    const endFrames = msToFrames(visibility.endMs ?? 0);
+    elements.previewStartInput.value = startFrames;
+    elements.previewEndInput.value = endFrames;
+    if (elements.previewFPSInput) {
+      elements.previewFPSInput.value = getPreviewFrameRate();
+    }
   };
 
   const renderResultTimer = () => {
@@ -312,25 +575,56 @@
       state.config?.resultScreen?.autoResetMs !== undefined
         ? state.config.resultScreen.autoResetMs
         : defaultAutoReset();
-    elements.autoResetInput.value = value;
+    elements.autoResetInput.value = secondsFromMs(value);
+  };
+
+  const renderPrinterConfig = () => {
+    const printer = state.config?.printer || {};
+    elements.printerNameInput.value = printer.deviceName || '';
+    elements.paperWidthInput.value = printer.paperWidthMm ?? 152;
+    elements.paperHeightInput.value = printer.paperHeightMm ?? 102;
+    elements.sheetsInput.value = printer.sheetsRemaining ?? 0;
   };
 
   const updatePreviewVisibility = () => {
-    const startValue = Number(elements.previewStartInput.value) || 0;
-    const endValue = Number(elements.previewEndInput.value) || startValue + 250;
-    const startMs = Math.max(0, startValue);
-    const endMs = Math.max(startMs + 250, endValue);
-
+    const fps = getPreviewFrameRate();
+    const startFrames = Math.max(0, Number(elements.previewStartInput.value) || 0);
+    const endFrames = Math.max(
+      startFrames + 1,
+      Number(elements.previewEndInput.value) || startFrames + 1
+    );
+    const startMs = framesToMs(startFrames);
+    const endMs = framesToMs(endFrames);
     state.config.previewVisibility = {
       ...(state.config.previewVisibility || {}),
       startMs,
-      endMs
+      endMs,
+      frameRate: fps
     };
-    renderPreviewVisibility();
+    elements.previewStartInput.value = startFrames;
+    elements.previewEndInput.value = endFrames;
   };
 
+  const getPreviewFrameRate = () => {
+    const fps =
+      Number(state.config?.previewVisibility?.frameRate) || DEFAULT_FRAME_RATE;
+    return clamp(fps, 1, 240);
+  };
+
+  const framesToMs = (frames) => {
+    const fps = getPreviewFrameRate();
+    return Math.round(Math.max(0, frames || 0) * (1000 / fps));
+  };
+
+  const msToFrames = (ms) => {
+    const fps = getPreviewFrameRate();
+    return Math.round((Math.max(0, ms || 0) * fps) / 1000);
+  };
+
+  const secondsFromMs = (ms) => Math.round(Math.max(0, ms || 0) / 1000);
+
   const updateStageMedia = () => {
-    if (!state.config || !state.config.mainVideo) {
+    if (!state.previewVideoPath) {
       elements.stageVideo.removeAttribute('src');
       elements.stageVideo.load();
       updatePlayButton();
@@ -338,7 +632,7 @@
       return;
     }
 
-    const src = fileToSrc(state.config.mainVideo);
+    const src = fileToSrc(state.previewVideoPath);
     if (elements.stageVideo.getAttribute('src') !== src) {
       elements.stageVideo.src = src;
       elements.stageVideo.pause();
@@ -455,13 +749,17 @@
 
   const defaultAutoReset = () => 20000;
 
-  const showToast = () => {
+  const showToast = (message) => {
+    if (message && elements.toast) {
+      elements.toast.textContent = message;
+    }
     elements.toast.classList.remove('hidden');
     if (state.toastTimeout) {
       clearTimeout(state.toastTimeout);
     }
     state.toastTimeout = setTimeout(() => {
       elements.toast.classList.add('hidden');
+      elements.toast.textContent = defaultToastMessage;
     }, 2000);
   };
 
@@ -478,6 +776,8 @@
       state.cameraStream = stream;
       elements.cameraOverlayVideo.srcObject = stream;
       elements.cameraOverlay.classList.remove('hidden');
+      const rect = elements.stageWrapper.getBoundingClientRect();
+      updateCameraOverlayTransform(rect.width, rect.height);
       updateCameraOverlayStatus('Camera overlay active.');
       updateCameraOverlayControls();
     } catch (error) {
@@ -516,27 +816,30 @@
   };
 
   const updateCameraOverlayTransform = (width, height) => {
-    if (!elements.cameraOverlay) {
-      return;
-    }
-    elements.cameraOverlay.style.left = '0px';
-    elements.cameraOverlay.style.top = '0px';
-    elements.cameraOverlay.style.width = `${width}px`;
-    elements.cameraOverlay.style.height = `${height}px`;
-
     const quad = state.config?.previewQuad;
-    if (!quad) {
+    if (!quad || !elements.cameraOverlay) {
       return;
     }
     const quadPx = quad.map((point) => ({
       x: point.x * width,
       y: point.y * height
     }));
+    applyPreviewTransformToElement(elements.cameraOverlay, quadPx, width, height);
+  };
+
+  const applyPreviewTransformToElement = (element, quadPx, width, height) => {
+    if (!element || !quadPx || !width || !height) {
+      return;
+    }
+    element.style.left = '0px';
+    element.style.top = '0px';
+    element.style.width = `${width}px`;
+    element.style.height = `${height}px`;
     const matrix = computePerspectiveMatrix(quadPx, width, height);
     if (matrix) {
-      elements.cameraOverlay.style.transform = `matrix3d(${matrix.join(',')})`;
+      element.style.transform = `matrix3d(${matrix.join(',')})`;
     } else {
-      elements.cameraOverlay.style.transform = '';
+      element.style.transform = '';
     }
   };
 
@@ -590,17 +893,34 @@
     if (!state.config || !state.config.previewVisibility) {
       return;
     }
-    const currentMs = Math.max(0, Math.round((elements.stageVideo.currentTime || 0) * 1000));
+    const currentSeconds = Math.max(0, elements.stageVideo.currentTime || 0);
+    const frames = Math.round(currentSeconds * getPreviewFrameRate());
     if (type === 'start') {
-      elements.previewStartInput.value = currentMs;
+      elements.previewStartInput.value = frames;
     } else {
-      elements.previewEndInput.value = currentMs;
+      elements.previewEndInput.value = frames;
     }
     updatePreviewVisibility();
   };
 
+  const toggleQuadEditing = () => {
+    state.isAdjustingQuad = !state.isAdjustingQuad;
+    updateQuadEditState();
+  };
+
+  const updateQuadEditState = () => {
+    if (elements.toggleQuadEditBtn) {
+      elements.toggleQuadEditBtn.textContent = state.isAdjustingQuad
+        ? 'Lock handles'
+        : 'Enable handles';
+    }
+    if (elements.handlesLayer) {
+      elements.handlesLayer.classList.toggle('locked', !state.isAdjustingQuad);
+    }
+  };
+
   const updateCueButtonsState = () => {
-    const hasVideo = Boolean(state.config?.mainVideo);
+    const hasVideo = Boolean(state.previewVideoPath);
     const paused = elements.stageVideo.paused;
     const disabled = !hasVideo || !paused;
     elements.setStartBtn.disabled = disabled;

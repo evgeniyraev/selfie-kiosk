@@ -4,15 +4,19 @@ const QRCode = require("qrcode");
 const {
   loadConfig,
   saveConfig,
+  resetConfig,
   hasRequiredSettings,
 } = require("./configManager");
 
-const isDev = process.env.NODE_ENV !== "production";
+const isProductionBuild =
+  app.isPackaged || process.env.NODE_ENV === "production";
+const isDev = !isProductionBuild;
+process.env.KIOSK_RUNTIME = isProductionBuild ? "production" : "development";
 
 let mainWindow;
 let settingsWindow;
 
-const MAIN_ASPECT_RATIO = 9 / 16;
+const MAIN_ASPECT_RATIO = 10 / 16;
 const DEFAULT_HEIGHT = 1920;
 const DEFAULT_WIDTH = Math.round(DEFAULT_HEIGHT * MAIN_ASPECT_RATIO);
 
@@ -24,7 +28,7 @@ const createMainWindow = () => {
   mainWindow = new BrowserWindow({
     width: DEFAULT_WIDTH,
     height: DEFAULT_HEIGHT,
-    fullscreen: !isDev,
+    fullscreen: isProductionBuild,
     resizable: isDev,
     backgroundColor: "#000000",
     autoHideMenuBar: true,
@@ -36,6 +40,9 @@ const createMainWindow = () => {
 
   mainWindow.loadFile(path.join(__dirname, "renderer", "main", "index.html"));
   mainWindow.setAspectRatio(MAIN_ASPECT_RATIO);
+  if (isProductionBuild) {
+    mainWindow.setFullScreen(true);
+  }
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -113,6 +120,17 @@ ipcMain.handle("config:write", async (_event, payload) => {
   return stored;
 });
 
+ipcMain.handle("config:reset", async () => {
+  const fresh = resetConfig();
+  if (mainWindow) {
+    mainWindow.webContents.send("config:updated", fresh);
+  }
+  if (settingsWindow) {
+    settingsWindow.webContents.send("config:updated", fresh);
+  }
+  return fresh;
+});
+
 ipcMain.handle("dialog:select", async (_event, options) => {
   const result = await dialog.showOpenDialog({
     properties: [
@@ -137,6 +155,33 @@ ipcMain.handle("qrcode:generate", async (_event, text) => {
   return QRCode.toDataURL(value);
 });
 
+ipcMain.handle("print:photo", async (_event, imageDataUrl) => {
+  if (!imageDataUrl) {
+    throw new Error("No image data provided");
+  }
+  const config = loadConfig();
+  const printer = config.printer || {};
+  if (!printer.deviceName) {
+    throw new Error("Printer device name is not configured.");
+  }
+  await printImage(imageDataUrl, printer);
+  if (printer.sheetsRemaining > 0) {
+    const updated = saveConfig({
+      printer: {
+        ...printer,
+        sheetsRemaining: Math.max(0, printer.sheetsRemaining - 1),
+      },
+    });
+    if (mainWindow) {
+      mainWindow.webContents.send("printer:sheets", updated.printer?.sheetsRemaining ?? 0);
+    }
+    if (settingsWindow) {
+      settingsWindow.webContents.send("printer:sheets", updated.printer?.sheetsRemaining ?? 0);
+    }
+  }
+  return { success: true };
+});
+
 ipcMain.on("settings:show", () => {
   ensureSettingsWindow();
 });
@@ -146,3 +191,62 @@ ipcMain.on("kiosk:reset-flow", () => {
     mainWindow.webContents.send("kiosk:reset-requested");
   }
 });
+
+const printImage = async (imageDataUrl, printer) => {
+  const widthMm = printer.paperWidthMm || 152;
+  const heightMm = printer.paperHeightMm || 102;
+
+  const printWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      offscreen: true,
+    },
+  });
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+          html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #000;
+          }
+          img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+          }
+        </style>
+      </head>
+      <body>
+        <img src="${imageDataUrl}" />
+      </body>
+    </html>
+  `;
+
+  await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  await new Promise((resolve, reject) => {
+    printWindow.webContents.print(
+      {
+        silent: true,
+        deviceName: printer.deviceName,
+        printBackground: true,
+      },
+      (success, failureReason) => {
+        printWindow.close();
+        if (success) {
+          resolve();
+        } else {
+          reject(new Error(failureReason || "Print job failed"));
+        }
+      },
+    );
+  });
+};

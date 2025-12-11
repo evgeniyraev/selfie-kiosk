@@ -26,31 +26,38 @@
                     class="stage-video main"
                     playsinline
                 ></video>
-        <div id="previewRegion" class="preview-region hidden">
-          <video id="webcamPreview" autoplay muted playsinline></video>
-        </div>
+                <div id="previewRegion" class="preview-region hidden">
+                    <video id="webcamPreview" autoplay muted playsinline></video>
+                    <img id="previewOverlay" alt="" class="preview-overlay hidden" />
+                </div>
             </div>
 
             <div id="resultPanel" class="result-panel hidden">
                 <div class="result-media">
                     <img id="resultPhoto" alt="Your photo" />
-                </div>
-                <div class="share-panel">
-                    <p class="share-title">
-                        Scan or print to take your photo with you
-                    </p>
-                    <img id="qrPreview" class="qr-preview" alt="QR code" />
-                    <a
-                        id="shareLink"
-                        class="share-link"
-                        target="_blank"
-                        rel="noreferrer"
-                    ></a>
-                    <div class="result-actions">
-                        <button id="printBtn">Print</button>
-                        <button id="restartBtn" class="ghost-btn">
-                            Start Over
-                        </button>
+                    <div class="result-overlay">
+                        <div class="qr-block">
+                            <img id="qrPreview" class="qr-preview" alt="QR code" />
+                            <div class="qr-text">
+                                <p>Scan to download</p>
+                                <a
+                                    id="shareLink"
+                                    class="share-link"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                ></a>
+                            </div>
+                        </div>
+                        <div class="sheet-count">
+                            Sheets left: <span id="sheetsLeft">--</span>
+                        </div>
+                        <div class="result-actions">
+                            <button id="printBtn">Print</button>
+                            <button id="restartBtn" class="ghost-btn">
+                                Start Over
+                            </button>
+                        </div>
+                        <p id="printStatus" class="print-status"></p>
                     </div>
                 </div>
             </div>
