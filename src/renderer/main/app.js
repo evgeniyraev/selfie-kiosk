@@ -501,7 +501,8 @@ const updateIdlePlayback = (shouldPlay) => {
   }
   if (shouldPlay) {
     elements.idleVideo.loop = true;
-    elements.idleVideo.muted = true;
+    elements.idleVideo.muted = false;
+    elements.idleVideo.volume = 1;
     elements.idleVideo.play().catch(() => {});
   } else {
     elements.idleVideo.pause();

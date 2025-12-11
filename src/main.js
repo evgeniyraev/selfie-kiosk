@@ -230,7 +230,7 @@ const printImage = async (imageDataUrl, printer) => {
     </html>
   `;
 
-  const dataUrl = `data:text/html;base64,${Buffer.from(html, "utf-8").toString("base64")}`;
+  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   await new Promise((resolve, reject) => {
     const cleanup = () => {
       printWindow.webContents.removeListener("did-fail-load", onFail);
