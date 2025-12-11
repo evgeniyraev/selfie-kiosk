@@ -29,8 +29,8 @@ const defaultConfig = {
   },
   printer: {
     deviceName: "",
-    paperWidthMm: 152,
-    paperHeightMm: 102,
+    paperWidthMm: 150,
+    paperHeightMm: 100,
     sheetsRemaining: 0,
   },
   mirrorCamera: true,

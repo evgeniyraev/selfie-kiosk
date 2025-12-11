@@ -184,6 +184,9 @@ body {
   margin: 0;
   font-size: 16px;
   color: #dbe9ff;
+  text-align: center;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .qr-drawer {

@@ -772,7 +772,7 @@ const createPrintComposition = async () => {
   ctx.fillRect(0, 0, width, height);
 
   const photo = await loadImage(state.lastPhotoDataUrl);
-  const scale = Math.min(width / photo.width, height / photo.height);
+  const scale = Math.max(width / photo.width, height / photo.height);
   const drawWidth = photo.width * scale;
   const drawHeight = photo.height * scale;
   const offsetX = (width - drawWidth) / 2;

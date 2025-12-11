@@ -193,8 +193,8 @@ ipcMain.on("kiosk:reset-flow", () => {
 });
 
 const printImage = async (imageDataUrl, printer) => {
-  const widthMm = printer.paperWidthMm || 152;
-  const heightMm = printer.paperHeightMm || 102;
+  const widthMm = printer.paperWidthMm || 150;
+  const heightMm = printer.paperHeightMm || 100;
 
   const printWindow = new BrowserWindow({
     show: false,
@@ -220,7 +220,7 @@ const printImage = async (imageDataUrl, printer) => {
           img {
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            display: block;
           }
         </style>
       </head>
@@ -231,7 +231,30 @@ const printImage = async (imageDataUrl, printer) => {
   `;
 
   const dataUrl = `data:text/html;base64,${Buffer.from(html, "utf-8").toString("base64")}`;
-  await printWindow.loadURL(dataUrl);
+  await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      printWindow.webContents.removeListener("did-fail-load", onFail);
+      printWindow.webContents.removeListener("did-finish-load", onFinish);
+    };
+    const onFail = (_event, errorCode, errorDesc) => {
+      cleanup();
+      reject(
+        new Error(
+          `Print preview failed to load (${errorCode}): ${errorDesc || "Unknown error"}`,
+        ),
+      );
+    };
+    const onFinish = () => {
+      cleanup();
+      resolve();
+    };
+    printWindow.webContents.once("did-fail-load", onFail);
+    printWindow.webContents.once("did-finish-load", onFinish);
+    printWindow.loadURL(dataUrl).catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
 
   await new Promise((resolve, reject) => {
     printWindow.webContents.print(
@@ -239,6 +262,13 @@ const printImage = async (imageDataUrl, printer) => {
         silent: true,
         deviceName: printer.deviceName,
         printBackground: true,
+        margins: {
+          marginType: "none",
+        },
+        pageSize: {
+          width: Math.round(widthMm * 1000),
+          height: Math.round(heightMm * 1000),
+        },
       },
       (success, failureReason) => {
         printWindow.close();
