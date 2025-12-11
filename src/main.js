@@ -204,33 +204,31 @@ const printImage = async (imageDataUrl, printer) => {
   });
 
   const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
-          html, body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            background: #000;
-          }
-          img {
-            width: 100%;
-            height: 100%;
-            display: block;
-          }
-        </style>
-      </head>
-      <body>
-        <img src="${imageDataUrl}" />
-      </body>
-    </html>
-  `;
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+      img {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="${imageDataUrl}" />
+  </body>
+</html>`;
 
-  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   await new Promise((resolve, reject) => {
     const cleanup = () => {
       printWindow.webContents.removeListener("did-fail-load", onFail);
@@ -244,13 +242,23 @@ const printImage = async (imageDataUrl, printer) => {
         ),
       );
     };
-    const onFinish = () => {
-      cleanup();
-      resolve();
+    const onFinish = async () => {
+      try {
+        await printWindow.webContents.executeJavaScript(`
+          document.open();
+          document.write(${JSON.stringify(html)});
+          document.close();
+        `);
+        cleanup();
+        resolve();
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
     };
     printWindow.webContents.once("did-fail-load", onFail);
     printWindow.webContents.once("did-finish-load", onFinish);
-    printWindow.loadURL(dataUrl).catch((error) => {
+    printWindow.loadURL("about:blank").catch((error) => {
       cleanup();
       reject(error);
     });
