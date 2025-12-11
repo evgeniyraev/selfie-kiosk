@@ -1,5 +1,6 @@
 (() => {
   const SETTINGS_HOLD_MS = 5000;
+  const RETRY_LEAD_MS = 5000;
 
   const state = {
     config: null,
@@ -14,8 +15,9 @@
     isPrinting: false,
     pendingOverlayPath: "",
     currentIdleVideo: "",
-    currentMainVideo: "",
+    currentMainVideo: null,
     settingsHoldTimer: null,
+    qrVisible: false,
     isProduction: Boolean(window.kioskAPI?.isProduction),
   };
 
@@ -32,7 +34,9 @@
     qrPreview: document.getElementById("qrPreview"),
     shareLink: document.getElementById("shareLink"),
     printBtn: document.getElementById("printBtn"),
-    restartBtn: document.getElementById("restartBtn"),
+    retryBtn: document.getElementById("retryBtn"),
+    qrToggleBtn: document.getElementById("qrToggleBtn"),
+    qrDrawer: document.getElementById("qrDrawer"),
     cornerSettingsBtn: document.getElementById("cornerSettingsBtn"),
     messagePanel: document.getElementById("messagePanel"),
     messageText: document.getElementById("messageText"),
@@ -85,8 +89,13 @@
       }
     });
 
-    elements.restartBtn.addEventListener("click", () => resetFlow());
+    if (elements.retryBtn) {
+      elements.retryBtn.addEventListener("click", () => handleRetry());
+    }
     elements.printBtn.addEventListener("click", () => handlePrint());
+    if (elements.qrToggleBtn) {
+      elements.qrToggleBtn.addEventListener("click", () => toggleQRDrawer());
+    }
 
     if (elements.cornerSettingsBtn) {
       elements.cornerSettingsBtn.addEventListener("pointerdown", (event) =>
@@ -111,7 +120,8 @@
     state.config = config;
     state.pendingOverlayPath = "";
     state.currentIdleVideo = "";
-    state.currentMainVideo = "";
+    state.currentMainVideo = null;
+    state.qrVisible = false;
     const ready = hasValidConfig(config);
     toggleMessage(
       !ready,
@@ -122,6 +132,7 @@
     elements.mainVideo.volume = 1;
     applyPreviewTransform();
     updatePreviewOverlay();
+    updateMirrorPreviewState();
     updateSheetDisplay();
     updatePrintButtonState();
     setPrintStatus(
@@ -129,6 +140,7 @@
         ? ""
         : "Configure printer in Settings to enable printing.",
     );
+    closeQRDrawer();
     resetFlow();
 
     if (ready) {
@@ -173,10 +185,13 @@
     );
 
     elements.resultPanel.classList.toggle("hidden", nextFlow !== "result");
+    if (nextFlow !== "result") {
+      closeQRDrawer();
+    }
     updateIdlePlayback(nextFlow === "idle");
   };
 
-  const startCaptureFlow = () => {
+  const startCaptureFlow = (options = {}) => {
     if (!hasValidConfig(state.config)) {
       toggleMessage(true, "Configure sources before starting.");
       return;
@@ -191,10 +206,17 @@
     setFlow("preparing");
     state.pendingOverlayPath = pickOverlay();
     updatePreviewOverlay();
-    elements.mainVideo.currentTime = 0;
-    elements.mainVideo.play().catch(() => {});
+    updateMirrorPreviewState();
 
     const previewWindow = getPreviewWindow();
+    const leadInMs = Math.max(0, options.leadInMs || 0);
+    const resumeSeconds =
+      leadInMs > 0
+        ? Math.max(0, previewWindow.startMs - leadInMs) / 1000
+        : 0;
+    seekMainVideo(resumeSeconds);
+    elements.mainVideo.play().catch(() => {});
+
     const startWindowMs = previewWindow.startMs;
     const endWindowMs = previewWindow.endMs;
 
@@ -221,6 +243,7 @@
     state.pendingOverlayPath = "";
     updatePreviewOverlay();
     setPreviewVisibility(false);
+    closeQRDrawer();
     prepareIdleVideo({ forceDifferent: true });
     setFlow("idle");
     updatePrintButtonState();
@@ -259,6 +282,7 @@
 
       state.webcamStream = stream;
       elements.webcamPreview.srcObject = stream;
+      updateMirrorPreviewState();
     } catch (error) {
       console.error("Failed to access camera", error);
       toggleMessage(true, "Camera permission is required to continue.");
@@ -298,10 +322,12 @@
     canvas.width = targetWidth;
     canvas.height = targetHeight;
 
-    ctx.save();
-    ctx.translate(targetWidth, 0);
-    ctx.scale(-1, 1);
-
+    const shouldMirror = mirrorCameraEnabled();
+    if (shouldMirror) {
+      ctx.save();
+      ctx.translate(targetWidth, 0);
+      ctx.scale(-1, 1);
+    }
     const scale = Math.min(
       targetWidth / (video.videoWidth || targetWidth),
       targetHeight / (video.videoHeight || targetHeight)
@@ -310,14 +336,12 @@
     const drawHeight = (video.videoHeight || targetHeight) * scale;
     const offsetX = (targetWidth - drawWidth) / 2;
     const offsetY = (targetHeight - drawHeight) / 2;
-    ctx.drawImage(
-      video,
-      offsetX,
-      offsetY,
-      drawWidth,
-      drawHeight
-    );
-    ctx.restore();
+    if (shouldMirror) {
+      ctx.drawImage(video, targetWidth - offsetX - drawWidth, offsetY, drawWidth, drawHeight);
+      ctx.restore();
+    } else {
+      ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
+    }
 
     const overlayPath = state.pendingOverlayPath || pickOverlay();
     state.pendingOverlayPath = "";
@@ -365,6 +389,7 @@
       console.warn("Failed to generate QR", error);
     }
 
+    closeQRDrawer();
     setFlow("result");
     updatePrintButtonState();
     const autoResetMs = Math.max(
@@ -398,6 +423,24 @@ const loadImageFromPath = (filePath) => {
     videoEl.load();
   };
 
+  const seekMainVideo = (seconds) => {
+    const clamped = Math.max(0, Number(seconds) || 0);
+    if (!elements.mainVideo) {
+      return;
+    }
+    if (elements.mainVideo.readyState > 0) {
+      elements.mainVideo.currentTime = clamped;
+      return;
+    }
+    const handler = () => {
+      elements.mainVideo.removeEventListener("loadedmetadata", handler);
+      elements.mainVideo.currentTime = clamped;
+    };
+    elements.mainVideo.addEventListener("loadedmetadata", handler, {
+      once: true,
+    });
+  };
+
   const toFileSrc = (filePath) => {
     if (!filePath) {
       return "";
@@ -407,7 +450,8 @@ const loadImageFromPath = (filePath) => {
   };
 
   const applyPreviewTransform = () => {
-    if (!state.config?.previewQuad) {
+    const quad = getActivePreviewQuad();
+    if (!quad) {
       return;
     }
 
@@ -422,17 +466,33 @@ const loadImageFromPath = (filePath) => {
     elements.previewRegion.style.width = `${stageWidth}px`;
     elements.previewRegion.style.height = `${stageHeight}px`;
 
-    const quad = state.config.previewQuad.map((point) => ({
+    const quadPx = quad.map((point) => ({
       x: point.x * stageWidth,
       y: point.y * stageHeight,
     }));
 
-    const matrix = computePerspectiveMatrix(quad, stageWidth, stageHeight);
+    const matrix = computePerspectiveMatrix(quadPx, stageWidth, stageHeight);
     if (matrix) {
       elements.previewRegion.style.transform = `matrix3d(${matrix.join(",")})`;
     } else {
       elements.previewRegion.style.transform = "";
     }
+  };
+
+  const getActivePreviewQuad = () => {
+    if (
+      Array.isArray(state.currentMainVideo?.previewQuad) &&
+      state.currentMainVideo.previewQuad.length === 4
+    ) {
+      return state.currentMainVideo.previewQuad;
+    }
+    if (
+      Array.isArray(state.config?.previewQuad) &&
+      state.config.previewQuad.length === 4
+    ) {
+      return state.config.previewQuad;
+    }
+    return null;
   };
 
 const updateIdlePlayback = (shouldPlay) => {
@@ -449,12 +509,28 @@ const updateIdlePlayback = (shouldPlay) => {
 };
 
 const getPreviewWindow = () => {
-    const visibility = state.config?.previewVisibility || {};
-    const startMs = Math.max(0, visibility.startMs ?? 4000);
-    const endMs = Math.max(
-      startMs + 250,
-      visibility.endMs ?? (visibility.startMs ?? 4000) + 2000,
-    );
+    const globalVisibility = state.config?.previewVisibility || {};
+    const videoVisibility = state.currentMainVideo?.previewVisibility;
+    const defaultStart =
+      typeof globalVisibility.startMs === "number"
+        ? globalVisibility.startMs
+        : 4000;
+    const startMsSource =
+      typeof videoVisibility?.startMs === "number"
+        ? videoVisibility.startMs
+        : defaultStart;
+    const startMs = Math.max(0, startMsSource);
+
+    const fallbackEnd =
+      typeof globalVisibility.endMs === "number"
+        ? globalVisibility.endMs
+        : startMs + 2000;
+    const endMsSource =
+      typeof videoVisibility?.endMs === "number"
+        ? videoVisibility.endMs
+        : fallbackEnd;
+    const endMs = Math.max(startMs + 250, endMsSource);
+
     return { startMs, endMs };
   };
 
@@ -479,6 +555,35 @@ const updatePreviewOverlay = () => {
   elements.previewOverlay.classList.remove("hidden");
 };
 
+const updateMirrorPreviewState = () => {
+  if (!elements.webcamPreview) {
+    return;
+  }
+  const mirrored = mirrorCameraEnabled();
+  elements.webcamPreview.classList.toggle("mirrored", mirrored);
+};
+
+const mirrorCameraEnabled = () => state.config?.mirrorCamera !== false;
+
+const toggleQRDrawer = () => {
+  state.qrVisible = !state.qrVisible;
+  applyQRDrawerState();
+};
+
+const closeQRDrawer = () => {
+  state.qrVisible = false;
+  applyQRDrawerState();
+};
+
+const applyQRDrawerState = () => {
+  if (elements.qrDrawer) {
+    elements.qrDrawer.classList.toggle("hidden", !state.qrVisible);
+  }
+  if (elements.qrToggleBtn) {
+    elements.qrToggleBtn.textContent = state.qrVisible ? "Hide QR" : "Show QR";
+  }
+};
+
 const prepareIdleVideo = ({ forceDifferent = false } = {}) => {
   const pool = Array.isArray(state.config?.idleVideos)
     ? state.config.idleVideos
@@ -490,7 +595,10 @@ const prepareIdleVideo = ({ forceDifferent = false } = {}) => {
   }
   let next = state.currentIdleVideo;
   if (!next || (forceDifferent && pool.length > 1)) {
-    next = pickRandomMedia(pool, forceDifferent ? state.currentIdleVideo : null);
+    next = pickRandomMediaPath(
+      pool,
+      forceDifferent ? state.currentIdleVideo : null,
+    );
   }
   if (!next) {
     state.currentIdleVideo = "";
@@ -508,31 +616,48 @@ const prepareMainVideoForFlow = () => {
     ? state.config.mainVideos
     : [];
   if (!pool.length) {
-    state.currentMainVideo = "";
+    state.currentMainVideo = null;
     setMediaSource(elements.mainVideo, "");
     return false;
   }
-  const next = pickRandomMedia(
-    pool,
-    pool.length > 1 ? state.currentMainVideo : null,
-  );
+
+  const excludePath =
+    pool.length > 1 ? state.currentMainVideo?.path || null : null;
+  const next = pickRandomVideoEntry(pool, excludePath);
   if (!next) {
-    state.currentMainVideo = "";
+    state.currentMainVideo = null;
     setMediaSource(elements.mainVideo, "");
     return false;
   }
-  const shouldReload = next !== state.currentMainVideo;
+
+  const shouldReload = next.path !== state.currentMainVideo?.path;
   state.currentMainVideo = next;
   if (shouldReload) {
-    setMediaSource(elements.mainVideo, next);
+    setMediaSource(elements.mainVideo, next.path);
   } else {
     elements.mainVideo.pause();
     elements.mainVideo.currentTime = 0;
   }
+  applyPreviewTransform();
   return true;
 };
 
-const pickRandomMedia = (pool = [], exclude) => {
+const pickRandomVideoEntry = (pool = [], excludePath) => {
+  if (!pool.length) {
+    return null;
+  }
+  let candidates = pool;
+  if (excludePath) {
+    const filtered = pool.filter((item) => item?.path !== excludePath);
+    if (filtered.length) {
+      candidates = filtered;
+    }
+  }
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index] || null;
+};
+
+const pickRandomMediaPath = (pool = [], exclude) => {
   if (!pool.length) {
     return "";
   }
@@ -594,6 +719,20 @@ const setPrintStatus = (message) => {
     return;
   }
   elements.printStatus.textContent = message || "";
+};
+
+const handleRetry = () => {
+  if (!hasValidConfig(state.config)) {
+    toggleMessage(true, "Configure sources before starting.");
+    return;
+  }
+  closeQRDrawer();
+  resetFlow();
+  requestAnimationFrame(() =>
+    startCaptureFlow({
+      leadInMs: RETRY_LEAD_MS,
+    }),
+  );
 };
 
 const handleCornerPress = (event) => {

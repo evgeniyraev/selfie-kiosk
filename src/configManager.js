@@ -33,6 +33,7 @@ const defaultConfig = {
     paperHeightMm: 102,
     sheetsRemaining: 0,
   },
+  mirrorCamera: true,
   santaOverlays: [],
 };
 
@@ -105,7 +106,12 @@ const mergeWithDefaults = (partialConfig = {}) => {
   merged.previewVisibility.frameRate = clampNumber(frameRate, 1, 240);
 
   normalizeMediaList(merged, "idleVideos", "idleVideo");
-  normalizeMediaList(merged, "mainVideos", "mainVideo");
+  merged.mainVideos = normalizeMainVideos(merged);
+  merged.mainVideo = merged.mainVideos[0]?.path || "";
+  merged.mirrorCamera =
+    typeof partialConfig.mirrorCamera === "boolean"
+      ? partialConfig.mirrorCamera
+      : defaultConfig.mirrorCamera;
 
   merged.santaOverlays = Array.isArray(partialConfig.santaOverlays)
     ? partialConfig.santaOverlays
@@ -177,6 +183,106 @@ const normalizeMediaList = (config, listKey, singleKey) => {
   const normalized = dedupeStrings([...singleValue, ...listValue]);
   config[listKey] = normalized;
   config[singleKey] = normalized[0] || "";
+};
+
+const normalizeMainVideos = (config) => {
+  const fallbackVisibility = config.previewVisibility || defaultConfig.previewVisibility;
+  const list = Array.isArray(config.mainVideos) ? config.mainVideos : [];
+  const normalized = [];
+  const seen = new Map();
+
+  const addEntry = (item) => {
+    const entry = buildVideoEntry(item, fallbackVisibility);
+    if (!entry) {
+      return;
+    }
+    if (seen.has(entry.path)) {
+      const index = seen.get(entry.path);
+      normalized[index] = mergeVideoEntries(normalized[index], entry);
+    } else {
+      seen.set(entry.path, normalized.length);
+      normalized.push(entry);
+    }
+  };
+
+  list.forEach(addEntry);
+
+  if (typeof config.mainVideo === "string" && config.mainVideo) {
+    addEntry(config.mainVideo);
+  }
+
+  return normalized;
+};
+
+const buildVideoEntry = (item, fallbackVisibility) => {
+  if (!item) {
+    return null;
+  }
+  if (typeof item === "string") {
+    const trimmed = item.trim();
+    return trimmed ? { path: trimmed } : null;
+  }
+  if (typeof item !== "object") {
+    return null;
+  }
+  const path = typeof item.path === "string" ? item.path.trim() : "";
+  if (!path) {
+    return null;
+  }
+  const entry = { path };
+  if (Array.isArray(item.previewQuad) && item.previewQuad.length === 4) {
+    entry.previewQuad = normalizePreviewQuad(item.previewQuad);
+  }
+  const visibility = normalizePreviewWindow(
+    item.previewVisibility,
+    fallbackVisibility,
+  );
+  if (visibility) {
+    entry.previewVisibility = visibility;
+  }
+  return entry;
+};
+
+const mergeVideoEntries = (base, incoming) => {
+  const next = { ...base };
+  if (incoming.previewQuad) {
+    next.previewQuad = incoming.previewQuad;
+  }
+  if (incoming.previewVisibility) {
+    next.previewVisibility = incoming.previewVisibility;
+  }
+  return next;
+};
+
+const normalizePreviewWindow = (value, fallback = {}) => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const hasStart = typeof value.startMs === "number";
+  const hasEnd = typeof value.endMs === "number";
+  if (!hasStart && !hasEnd) {
+    return undefined;
+  }
+
+  const baseStart =
+    typeof fallback.startMs === "number"
+      ? fallback.startMs
+      : defaultConfig.previewVisibility.startMs;
+  let startMs = hasStart
+    ? clampNumber(value.startMs, 0, Number.MAX_SAFE_INTEGER)
+    : baseStart;
+
+  const minEnd = startMs + 250;
+  const fallbackEnd =
+    typeof fallback.endMs === "number"
+      ? Math.max(fallback.endMs, minEnd)
+      : minEnd;
+  let endMs = hasEnd
+    ? clampNumber(value.endMs, minEnd, Number.MAX_SAFE_INTEGER)
+    : fallbackEnd;
+
+  return { startMs, endMs };
 };
 
 const toStringArray = (value) => {

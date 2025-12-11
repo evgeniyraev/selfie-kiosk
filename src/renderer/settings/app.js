@@ -17,6 +17,7 @@
   const elements = {
     shareInput: qs('#shareBaseInput'),
     previewFPSInput: qs('#previewFPSInput'),
+    mirrorCameraInput: qs('#mirrorCameraInput'),
     idleVideoList: qs('#idleVideoList'),
     mainVideoList: qs('#mainVideoList'),
     addIdleVideosBtn: qs('#addIdleVideosBtn'),
@@ -59,10 +60,14 @@
     attachEvents();
     const config = await window.settingsAPI.loadConfig();
     state.config = config;
-    state.previewVideoPath = Array.isArray(config.mainVideos)
-      ? config.mainVideos[0] || ''
-      : '';
-    ensurePreviewQuad();
+    const firstVideo =
+      Array.isArray(config.mainVideos) && config.mainVideos.length
+        ? config.mainVideos[0]?.path
+        : '';
+    state.previewVideoPath = firstVideo || '';
+    ensureGlobalPreviewQuad();
+    ensurePreviewVideoSelection();
+    ensureActiveVideoSettings();
     render();
     if (window.settingsAPI.onSheetsUpdate) {
       window.settingsAPI.onSheetsUpdate((count) => {
@@ -127,7 +132,9 @@
       }
       state.config = await window.settingsAPI.resetConfig();
       state.previewVideoPath = '';
-      ensurePreviewQuad();
+      ensureGlobalPreviewQuad();
+      ensurePreviewVideoSelection();
+      ensureActiveVideoSettings();
       render();
       showToast('Settings reset to defaults');
     });
@@ -170,6 +177,17 @@
           frameRate: fps
         };
         renderPreviewVisibility();
+      });
+    }
+
+    if (elements.mirrorCameraInput) {
+      elements.mirrorCameraInput.addEventListener('change', () => {
+        if (!state.config) {
+          return;
+        }
+        const enabled = elements.mirrorCameraInput.checked;
+        state.config.mirrorCamera = enabled;
+        updateMirrorPreviewState();
       });
     }
 
@@ -292,11 +310,12 @@
   };
 
   const render = () => {
-    ensurePreviewQuad();
+    ensureGlobalPreviewQuad();
+    ensurePreviewVideoSelection();
+    ensureActiveVideoSettings();
     if (elements.shareInput) {
       elements.shareInput.value = state.config.shareBaseUrl || '';
     }
-    ensurePreviewVideoSelection();
     renderVideoList('idle');
     renderVideoList('main');
     renderOverlayList();
@@ -308,6 +327,7 @@
     updateStageMedia();
     syncTimelineMeta();
     updateQuadEditState();
+    updateMirrorPreviewState();
   };
 
   const renderOverlayList = () => {
@@ -356,8 +376,12 @@
     if (!listEl || !state.config) {
       return;
     }
-    const key = type === 'idle' ? 'idleVideos' : 'mainVideos';
-    const videos = Array.isArray(state.config[key]) ? state.config[key] : [];
+    const videos =
+      type === 'idle'
+        ? Array.isArray(state.config.idleVideos)
+          ? state.config.idleVideos
+          : []
+        : getMainVideoPool();
     listEl.innerHTML = '';
 
     if (!videos.length) {
@@ -371,35 +395,51 @@
       return;
     }
 
-    videos.forEach((path, index) => {
-      listEl.appendChild(createMediaCard(type, path, index));
+    videos.forEach((item, index) => {
+      listEl.appendChild(createMediaCard(type, item, index));
     });
   };
 
-  const createMediaCard = (type, path, index) => {
+  const createMediaCard = (type, item, index) => {
     const card = document.createElement('div');
     card.className = 'media-card';
 
     const name = document.createElement('div');
     name.className = 'media-name';
-    name.textContent = path.split(/[/\\]/).pop();
+    const filePath = type === 'main' ? item?.path : item;
+    name.textContent = (filePath || 'Unknown file').split(/[/\\]/).pop();
     card.appendChild(name);
 
     const meta = document.createElement('div');
     meta.className = 'media-path';
-    meta.textContent = path;
+    meta.textContent = filePath || '';
     card.appendChild(meta);
 
     const actions = document.createElement('div');
     actions.className = 'media-actions';
 
     if (type === 'main') {
-      const isActive = path === state.previewVideoPath;
+      const isActive = filePath === state.previewVideoPath;
       const previewBtn = document.createElement('button');
-      previewBtn.textContent = isActive ? 'Previewing' : 'Show in preview';
+      previewBtn.textContent = isActive ? 'Configuring' : 'Configure';
       previewBtn.disabled = isActive;
-      previewBtn.addEventListener('click', () => setPreviewVideo(path));
+      previewBtn.addEventListener('click', () => setPreviewVideo(filePath));
       actions.appendChild(previewBtn);
+
+      const windowInfo = document.createElement('div');
+      windowInfo.className = 'media-path';
+      if (
+        item?.previewVisibility &&
+        typeof item.previewVisibility.startMs === 'number' &&
+        typeof item.previewVisibility.endMs === 'number'
+      ) {
+        const start = msToFrames(item.previewVisibility.startMs);
+        const end = msToFrames(item.previewVisibility.endMs);
+        windowInfo.textContent = `Preview frames ${start} – ${end}`;
+      } else {
+        windowInfo.textContent = 'Uses default preview timing.';
+      }
+      card.appendChild(windowInfo);
     }
 
     const removeBtn = document.createElement('button');
@@ -419,16 +459,25 @@
     if (!files?.length) {
       return;
     }
-    const key = type === 'idle' ? 'idleVideos' : 'mainVideos';
-    const current = Array.isArray(state.config[key]) ? state.config[key] : [];
-    state.config[key] = mergeMediaLists(current, files);
-    if (type === 'main') {
-      ensurePreviewVideoSelection();
+    if (type === 'idle') {
+      const current = Array.isArray(state.config.idleVideos)
+        ? state.config.idleVideos
+        : [];
+      state.config.idleVideos = mergeMediaLists(current, files);
+      renderVideoList('idle');
+      return;
     }
-    renderVideoList(type);
-    if (type === 'main') {
-      updateStageMedia();
-    }
+
+    const currentMain = Array.isArray(state.config.mainVideos)
+      ? state.config.mainVideos
+      : [];
+    state.config.mainVideos = mergeMainVideoEntries(currentMain, files);
+    ensurePreviewVideoSelection();
+    ensureActiveVideoSettings();
+    renderVideoList('main');
+    updateStageMedia();
+    renderQuad();
+    renderPreviewVisibility();
   };
 
   const mergeMediaLists = (current = [], additions = []) => {
@@ -436,6 +485,20 @@
     additions.forEach((file) => {
       if (typeof file === 'string' && file && !next.includes(file)) {
         next.push(file);
+      }
+    });
+    return next;
+  };
+
+  const mergeMainVideoEntries = (current = [], additions = []) => {
+    const next = Array.isArray(current) ? [...current] : [];
+    additions.forEach((file) => {
+      if (typeof file !== 'string' || !file) {
+        return;
+      }
+      const exists = next.some((entry) => entry?.path === file);
+      if (!exists) {
+        next.push({ path: file });
       }
     });
     return next;
@@ -450,27 +513,32 @@
     if (index < 0 || index >= list.length) {
       return;
     }
-    list.splice(index, 1);
+    const [removed] = list.splice(index, 1);
     state.config[key] = list;
     if (type === 'main') {
+      if (removed?.path === state.previewVideoPath) {
+        state.previewVideoPath = '';
+      }
       ensurePreviewVideoSelection();
+      ensureActiveVideoSettings();
+      renderVideoList('main');
+      updateStageMedia();
+      renderQuad();
+      renderPreviewVisibility();
+      return;
     }
     renderVideoList(type);
-    if (type === 'main') {
-      updateStageMedia();
-    }
   };
 
   const ensurePreviewVideoSelection = () => {
-    const pool = Array.isArray(state.config?.mainVideos)
-      ? state.config.mainVideos
-      : [];
+    const pool = getMainVideoPool();
     if (!pool.length) {
       state.previewVideoPath = '';
       return;
     }
-    if (!state.previewVideoPath || !pool.includes(state.previewVideoPath)) {
-      state.previewVideoPath = pool[0];
+    const exists = pool.some((entry) => entry?.path === state.previewVideoPath);
+    if (!state.previewVideoPath || !exists) {
+      state.previewVideoPath = pool[0]?.path || '';
     }
   };
 
@@ -479,8 +547,11 @@
       return;
     }
     state.previewVideoPath = path;
+    ensureActiveVideoSettings();
     updateStageMedia();
     updatePlayButton();
+    renderQuad();
+    renderPreviewVisibility();
   };
 
   const renderOverlayPreview = () => {
@@ -498,8 +569,10 @@
   };
 
   const renderQuad = () => {
-    const quad = state.config?.previewQuad;
-    if (!quad) {
+    ensureActiveVideoSettings();
+    const entry = getActiveMainVideo();
+    const quad = entry?.previewQuad || getGlobalPreviewQuad();
+    if (!quad || !quad.length) {
       return;
     }
 
@@ -547,7 +620,8 @@
 
   const dragHandle = (event) => {
     event.preventDefault();
-    if (state.dragHandleIndex === null || !state.config?.previewQuad) {
+    const entry = getActiveMainVideo();
+    if (state.dragHandleIndex === null || !entry?.previewQuad) {
       return;
     }
 
@@ -555,12 +629,15 @@
     const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
 
-    state.config.previewQuad[state.dragHandleIndex] = { x, y };
+    entry.previewQuad[state.dragHandleIndex] = { x, y };
     renderQuad();
   };
 
   const renderPreviewVisibility = () => {
-    const visibility = state.config?.previewVisibility || {};
+    ensureActiveVideoSettings();
+    const entry = getActiveMainVideo();
+    const visibility =
+      entry?.previewVisibility || state.config?.previewVisibility || {};
     const startFrames = msToFrames(visibility.startMs ?? 0);
     const endFrames = msToFrames(visibility.endMs ?? 0);
     elements.previewStartInput.value = startFrames;
@@ -584,9 +661,13 @@
     elements.paperWidthInput.value = printer.paperWidthMm ?? 152;
     elements.paperHeightInput.value = printer.paperHeightMm ?? 102;
     elements.sheetsInput.value = printer.sheetsRemaining ?? 0;
+    if (elements.mirrorCameraInput) {
+      elements.mirrorCameraInput.checked = isCameraMirrored();
+    }
   };
 
   const updatePreviewVisibility = () => {
+    const entry = getActiveMainVideo();
     const fps = getPreviewFrameRate();
     const startFrames = Math.max(0, Number(elements.previewStartInput.value) || 0);
     const endFrames = Math.max(
@@ -601,6 +682,9 @@
       endMs,
       frameRate: fps
     };
+    if (entry) {
+      entry.previewVisibility = { startMs, endMs };
+    }
     elements.previewStartInput.value = startFrames;
     elements.previewEndInput.value = endFrames;
   };
@@ -736,14 +820,65 @@
     return augmented.map((row) => row[n]);
   };
 
-  const ensurePreviewQuad = () => {
-    if (!Array.isArray(state.config?.previewQuad) || state.config.previewQuad.length !== 4) {
+  const ensureGlobalPreviewQuad = () => {
+    if (
+      !Array.isArray(state.config?.previewQuad) ||
+      state.config.previewQuad.length !== 4
+    ) {
       state.config.previewQuad = [
         { x: 0.2, y: 0.2 },
         { x: 0.8, y: 0.2 },
         { x: 0.8, y: 0.8 },
         { x: 0.2, y: 0.8 }
       ];
+    }
+  };
+
+  const getGlobalPreviewQuad = () => state.config?.previewQuad || [];
+
+  const clonePreviewQuad = (quad = []) =>
+    quad.map((point) => ({ x: point.x, y: point.y }));
+
+  const getMainVideoPool = () =>
+    Array.isArray(state.config?.mainVideos) ? state.config.mainVideos : [];
+
+  const getActiveMainVideo = () => {
+    const pool = getMainVideoPool();
+    if (!pool.length) {
+      return null;
+    }
+    const current =
+      pool.find((entry) => entry.path === state.previewVideoPath) || pool[0];
+    if (current && current.path !== state.previewVideoPath) {
+      state.previewVideoPath = current.path;
+    }
+    return current || null;
+  };
+
+  const ensureActiveVideoSettings = () => {
+    const entry = getActiveMainVideo();
+    if (!entry) {
+      return;
+    }
+    if (
+      !Array.isArray(entry.previewQuad) ||
+      entry.previewQuad.length !== 4
+    ) {
+      entry.previewQuad = clonePreviewQuad(getGlobalPreviewQuad());
+    }
+    if (
+      !entry.previewVisibility ||
+      typeof entry.previewVisibility.startMs !== 'number' ||
+      typeof entry.previewVisibility.endMs !== 'number'
+    ) {
+      const base = state.config?.previewVisibility || {};
+      const defaultStart =
+        typeof base.startMs === 'number' ? base.startMs : 4000;
+      const startMs = Math.max(0, entry.previewVisibility?.startMs ?? defaultStart);
+      const baseEnd =
+        typeof base.endMs === 'number' ? base.endMs : startMs + 2000;
+      const endMs = Math.max(startMs + 250, entry.previewVisibility?.endMs ?? baseEnd);
+      entry.previewVisibility = { startMs, endMs };
     }
   };
 
@@ -778,6 +913,7 @@
       elements.cameraOverlay.classList.remove('hidden');
       const rect = elements.stageWrapper.getBoundingClientRect();
       updateCameraOverlayTransform(rect.width, rect.height);
+      updateMirrorPreviewState();
       updateCameraOverlayStatus('Camera overlay active.');
       updateCameraOverlayControls();
     } catch (error) {
@@ -816,8 +952,10 @@
   };
 
   const updateCameraOverlayTransform = (width, height) => {
-    const quad = state.config?.previewQuad;
-    if (!quad || !elements.cameraOverlay) {
+    ensureActiveVideoSettings();
+    const entry = getActiveMainVideo();
+    const quad = entry?.previewQuad || getGlobalPreviewQuad();
+    if (!quad.length || !elements.cameraOverlay) {
       return;
     }
     const quadPx = quad.map((point) => ({
@@ -926,6 +1064,16 @@
     elements.setStartBtn.disabled = disabled;
     elements.setEndBtn.disabled = disabled;
   };
+
+  const updateMirrorPreviewState = () => {
+    const mirrored = isCameraMirrored();
+    if (elements.cameraOverlayVideo) {
+      elements.cameraOverlayVideo.classList.toggle('mirrored', mirrored);
+    }
+  };
+
+  const isCameraMirrored = () =>
+    state.config?.mirrorCamera !== false;
 
   init();
 })();

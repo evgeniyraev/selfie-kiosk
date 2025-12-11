@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm install
@@ -26,6 +27,7 @@ jobs:
       - name: Build Windows package
         env:
           ELECTRON_BUILDER_SKIP_TOKENS: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:win
 
       - name: Upload installer artifact

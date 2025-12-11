@@ -73,6 +73,9 @@ body {
   height: 100%;
   object-fit: contain;
   background: transparent;
+}
+
+.preview-region video.mirrored {
   transform: scaleX(-1);
 }
 
@@ -112,76 +115,116 @@ body {
 
 .result-panel {
   position: absolute;
-  top: 5%;
+  top: 3%;
   left: 50%;
   transform: translateX(-50%);
   width: 92%;
-  max-width: 1600px;
+  max-width: 1500px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  align-items: center;
   z-index: 3;
 }
 
 .result-media {
-  position: relative;
   width: 100%;
   max-width: 1400px;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
   border-radius: 28px;
   overflow: hidden;
+  background: #111;
 }
 
 .result-media img {
   width: 100%;
   aspect-ratio: 16 / 9;
-  height: auto;
   object-fit: cover;
   display: block;
-  background: #111;
 }
 
-.result-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 24px 40px;
+.result-actions {
+  width: 100%;
+  max-width: 1200px;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
-  gap: 24px;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(9, 10, 16, 0.9) 60%);
+}
+
+.action-buttons {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.action-buttons button {
+  font-size: 20px;
+  padding: 14px 40px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+#printBtn {
+  background: #ff355e;
+  color: #fff;
+}
+
+.sheet-count {
+  font-size: 18px;
+  color: #dbe9ff;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 10px 18px;
+  border-radius: 999px;
+  text-align: center;
+}
+
+.print-status {
+  margin: 0;
+  font-size: 16px;
+  color: #dbe9ff;
+}
+
+.qr-drawer {
+  width: 100%;
+  max-width: 800px;
+  padding: 24px;
+  border-radius: 24px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.qr-drawer.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin: 0;
 }
 
 .qr-block {
   display: flex;
   align-items: center;
   gap: 18px;
-  background: rgba(0, 0, 0, 0.45);
-  padding: 12px 18px;
-  border-radius: 20px;
-}
-
-.sheet-count {
-  margin-left: auto;
-  margin-right: 20px;
-  font-size: 18px;
-  color: #dbe9ff;
-  background: rgba(0, 0, 0, 0.45);
-  padding: 10px 18px;
-  border-radius: 999px;
 }
 
 .qr-preview {
-  width: 160px;
-  height: 160px;
+  width: 180px;
+  height: 180px;
   background: #fff;
-  padding: 10px;
+  padding: 12px;
   border-radius: 16px;
 }
 
 .qr-text p {
-  margin: 0 0 4px 0;
+  margin: 0 0 6px 0;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -192,31 +235,7 @@ body {
 .share-link {
   color: #8dedff;
   word-break: break-all;
-  font-size: 14px;
-}
-
-.result-actions {
-  display: flex;
-  gap: 16px;
-}
-
-.result-actions button {
-  font-size: 18px;
-  padding: 12px 32px;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-}
-
-.result-actions button#printBtn {
-  background: #ff355e;
-  color: #fff;
-}
-
-.print-status {
-  margin: 8px 0 0 0;
   font-size: 16px;
-  color: #dbe9ff;
 }
 
 .message-panel {

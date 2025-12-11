@@ -331,6 +331,10 @@ input[type='url'] {
   background: #000;
   border-radius: 18px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease;
+}
+
+#settingsCameraOverlayVideo.mirrored {
   transform: scaleX(-1);
 }
 
@@ -485,4 +489,21 @@ input[type='url'] {
 
 .toast.hidden {
   display: none;
+}
+.checkbox-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkbox-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.checkbox-field input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
 }

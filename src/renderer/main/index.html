@@ -35,29 +35,30 @@
             <div id="resultPanel" class="result-panel hidden">
                 <div class="result-media">
                     <img id="resultPhoto" alt="Your photo" />
-                    <div class="result-overlay">
-                        <div class="qr-block">
-                            <img id="qrPreview" class="qr-preview" alt="QR code" />
-                            <div class="qr-text">
-                                <p>Scan to download</p>
-                                <a
-                                    id="shareLink"
-                                    class="share-link"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                ></a>
-                            </div>
+                </div>
+                <div class="result-actions">
+                    <div class="action-buttons">
+                        <button id="retryBtn" class="ghost-btn">Retry</button>
+                        <button id="printBtn">Print</button>
+                        <button id="qrToggleBtn" class="ghost-btn">Show QR</button>
+                    </div>
+                    <div class="sheet-count">
+                        Sheets left: <span id="sheetsLeft">--</span>
+                    </div>
+                    <p id="printStatus" class="print-status"></p>
+                </div>
+                <div id="qrDrawer" class="qr-drawer hidden">
+                    <div class="qr-block">
+                        <img id="qrPreview" class="qr-preview" alt="QR code" />
+                        <div class="qr-text">
+                            <p>Scan to download</p>
+                            <a
+                                id="shareLink"
+                                class="share-link"
+                                target="_blank"
+                                rel="noreferrer"
+                            ></a>
                         </div>
-                        <div class="sheet-count">
-                            Sheets left: <span id="sheetsLeft">--</span>
-                        </div>
-                        <div class="result-actions">
-                            <button id="printBtn">Print</button>
-                            <button id="restartBtn" class="ghost-btn">
-                                Start Over
-                            </button>
-                        </div>
-                        <p id="printStatus" class="print-status"></p>
                     </div>
                 </div>
             </div>
