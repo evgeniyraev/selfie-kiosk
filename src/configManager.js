@@ -9,7 +9,7 @@ const defaultConfig = {
   mainVideo: "",
   idleVideos: [],
   mainVideos: [],
-  shareBaseUrl: "https://example.com/events/christmas",
+  backupDirectory: "",
   previewQuad: [
     { x: 0.58, y: 0.18 },
     { x: 0.9, y: 0.2 },
@@ -116,10 +116,17 @@ const mergeWithDefaults = (partialConfig = {}) => {
   merged.santaOverlays = Array.isArray(partialConfig.santaOverlays)
     ? partialConfig.santaOverlays
     : [];
+  merged.backupDirectory =
+    typeof partialConfig.backupDirectory === "string"
+      ? partialConfig.backupDirectory.trim()
+      : "";
   merged.printer.sheetsRemaining = Math.max(
     0,
     Number(merged.printer.sheetsRemaining) || 0,
   );
+  if ("shareBaseUrl" in merged) {
+    delete merged.shareBaseUrl;
+  }
   return merged;
 };
 

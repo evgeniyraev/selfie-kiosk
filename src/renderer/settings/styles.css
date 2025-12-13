@@ -142,6 +142,34 @@ input[type='url'] {
   cursor: pointer;
 }
 
+.backup-path {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-family: 'SFMono-Regular', 'Consolas', monospace;
+  word-break: break-all;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.backup-actions button {
+  border-radius: 12px;
+  border: none;
+  padding: 10px 16px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.backup-actions .ghost {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+}
+
 .helper {
   margin-top: 0;
   color: #8f96b7;

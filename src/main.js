@@ -1,3 +1,4 @@
+const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const QRCode = require("qrcode");
@@ -19,6 +20,54 @@ let settingsWindow;
 const MAIN_ASPECT_RATIO = 10 / 16;
 const DEFAULT_HEIGHT = 1920;
 const DEFAULT_WIDTH = Math.round(DEFAULT_HEIGHT * MAIN_ASPECT_RATIO);
+
+const getDefaultBackupDir = () => {
+  return path.join(app.getPath("userData"), "backups");
+};
+
+const ensureDir = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+};
+
+const resolveBackupDir = () => {
+  const config = loadConfig();
+  const custom =
+    typeof config.backupDirectory === "string"
+      ? config.backupDirectory.trim()
+      : "";
+  const targetDir = custom || getDefaultBackupDir();
+  try {
+    ensureDir(targetDir);
+    return targetDir;
+  } catch (error) {
+    console.warn("Failed to use custom backup directory", error);
+    const fallback = getDefaultBackupDir();
+    ensureDir(fallback);
+    return fallback;
+  }
+};
+
+const saveBackupPhotoToDisk = async (dataUrl, reason = "backup") => {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+    throw new Error("Invalid image data.");
+  }
+  const matches = dataUrl.match(/^data:image\/(png|jpe?g);base64,(.+)$/i);
+  if (!matches) {
+    throw new Error("Unsupported image format.");
+  }
+  const extension = matches[1].toLowerCase() === "jpeg" ? "jpg" : matches[1].toLowerCase();
+  const buffer = Buffer.from(matches[2], "base64");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeReason =
+    (reason || "backup").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ||
+    "backup";
+  const filename = `${timestamp}-${safeReason}.${extension}`;
+  const targetPath = path.join(resolveBackupDir(), filename);
+  await fs.promises.writeFile(targetPath, buffer);
+  return targetPath;
+};
 
 const createMainWindow = () => {
   if (mainWindow) {
@@ -132,12 +181,14 @@ ipcMain.handle("config:reset", async () => {
 });
 
 ipcMain.handle("dialog:select", async (_event, options) => {
+  const allowDirectory = options?.directory === true;
+  const properties = [
+    allowDirectory ? "openDirectory" : "openFile",
+    ...(options?.allowMultiple ? ["multiSelections"] : []),
+  ];
   const result = await dialog.showOpenDialog({
-    properties: [
-      "openFile",
-      ...(options?.allowMultiple ? ["multiSelections"] : []),
-    ],
-    filters: options?.filters || [],
+    properties,
+    filters: allowDirectory ? undefined : options?.filters || [],
   });
 
   if (result.canceled) {
@@ -180,6 +231,18 @@ ipcMain.handle("print:photo", async (_event, imageDataUrl) => {
     }
   }
   return { success: true };
+});
+
+ipcMain.handle("backup:savePhoto", async (_event, payload = {}) => {
+  const { imageData, reason } = payload;
+  if (!imageData) {
+    throw new Error("Missing image data for backup.");
+  }
+  return saveBackupPhotoToDisk(imageData, reason);
+});
+
+ipcMain.handle("backup:getDefaultDir", async () => {
+  return getDefaultBackupDir();
 });
 
 ipcMain.on("settings:show", () => {

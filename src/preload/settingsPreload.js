@@ -32,6 +32,13 @@ contextBridge.exposeInMainWorld('settingsAPI', {
     });
     return selections || [];
   },
+  selectDirectory: async () => {
+    const selections = await ipcRenderer.invoke('dialog:select', {
+      directory: true
+    });
+    return selections?.[0] || '';
+  },
+  getDefaultBackupDir: () => ipcRenderer.invoke('backup:getDefaultDir'),
   reopenKioskFlow: () => ipcRenderer.send('kiosk:reset-flow'),
   focusSettings: () => ipcRenderer.send('settings:show'),
   onSheetsUpdate: (callback) => {

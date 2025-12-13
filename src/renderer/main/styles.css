@@ -240,6 +240,13 @@ body {
   font-size: 16px;
 }
 
+.qr-status {
+  margin-top: 10px;
+  font-size: 15px;
+  color: #dbe9ff;
+  min-height: 1.2em;
+}
+
 .message-panel {
   position: absolute;
   inset: 0;

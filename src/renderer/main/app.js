@@ -1,6 +1,8 @@
 (() => {
   const SETTINGS_HOLD_MS = 5000;
   const RETRY_LEAD_MS = 5000;
+  const SHARE_UPLOAD_ENDPOINT = "https://interactivebulgaria.bg/server/upload.php";
+  const SHARE_DEFAULT_STATUS = 'Tap "Show QR" to generate a download link.';
 
   const state = {
     config: null,
@@ -19,6 +21,7 @@
     currentMainVideo: null,
     settingsHoldTimer: null,
     qrVisible: false,
+    shareUploadPromise: null,
     isProduction: Boolean(window.kioskAPI?.isProduction),
   };
 
@@ -52,6 +55,7 @@
     resultPhoto: document.getElementById("resultPhoto"),
     qrPreview: document.getElementById("qrPreview"),
     shareLink: document.getElementById("shareLink"),
+    qrStatus: document.getElementById("qrStatus"),
     printBtn: document.getElementById("printBtn"),
     retryBtn: document.getElementById("retryBtn"),
     qrToggleBtn: document.getElementById("qrToggleBtn"),
@@ -62,6 +66,62 @@
     messageSettingsBtn: document.getElementById("messageSettingsBtn"),
     sheetsLeft: document.getElementById("sheetsLeft"),
     printStatus: document.getElementById("printStatus"),
+  };
+
+  const setQRStatus = (message) => {
+    if (elements.qrStatus) {
+      elements.qrStatus.textContent = message || "";
+    }
+  };
+
+  const updateShareLinkDisplay = (link) => {
+    if (!elements.shareLink) {
+      return;
+    }
+    if (link) {
+      elements.shareLink.textContent = link;
+      elements.shareLink.href = link;
+    } else {
+      elements.shareLink.textContent = "";
+      elements.shareLink.removeAttribute("href");
+    }
+  };
+
+  const clearQrPreview = () => {
+    if (elements.qrPreview) {
+      elements.qrPreview.removeAttribute("src");
+    }
+  };
+
+  const resetShareState = () => {
+    state.shareLink = "";
+    state.shareUploadPromise = null;
+    clearQrPreview();
+    updateShareLinkDisplay("");
+    setQRStatus(SHARE_DEFAULT_STATUS);
+  };
+
+  const setQrButtonBusy = (isBusy, label) => {
+    if (!elements.qrToggleBtn) {
+      return;
+    }
+    elements.qrToggleBtn.disabled = isBusy;
+    if (isBusy && label) {
+      elements.qrToggleBtn.textContent = label;
+      return;
+    }
+    elements.qrToggleBtn.textContent = state.qrVisible ? "Hide QR" : "Show QR";
+  };
+
+  const backupPhotoLocally = async (imageDataUrl, reason) => {
+    if (!imageDataUrl || !window.kioskAPI?.saveBackupPhoto) {
+      return;
+    }
+    try {
+      await window.kioskAPI.saveBackupPhoto(imageDataUrl, reason);
+    } catch (error) {
+      console.warn("Failed to save backup photo", reason, error);
+    }
   };
 
   const init = async () => {
@@ -113,7 +173,9 @@
     }
     elements.printBtn.addEventListener("click", () => handlePrint());
     if (elements.qrToggleBtn) {
-      elements.qrToggleBtn.addEventListener("click", () => toggleQRDrawer());
+      elements.qrToggleBtn.addEventListener("click", () => {
+        handleQrToggle();
+      });
     }
 
     if (elements.cornerSettingsBtn) {
@@ -141,6 +203,7 @@
     const overlaysChanged = !areArraysEqual(previousOverlays, nextOverlays);
     state.config = config;
     state.pendingOverlayPath = "";
+    resetShareState();
     if (overlaysChanged) {
       state.overlayQueue = [];
     }
@@ -263,6 +326,7 @@
     elements.mainVideo.pause();
     elements.mainVideo.currentTime = 0;
     state.lastPhotoDataUrl = null;
+    resetShareState();
     state.pendingOverlayPath = "";
     updatePreviewOverlay();
     setPreviewVisibility(false);
@@ -317,6 +381,7 @@
       return;
     }
 
+    resetShareState();
     if (state.previewShowTimer) {
       clearTimeout(state.previewShowTimer);
       state.previewShowTimer = null;
@@ -434,19 +499,8 @@
       return;
     }
 
+    resetShareState();
     elements.resultPhoto.src = state.lastPhotoDataUrl;
-    const shareLink = buildShareLink();
-    state.shareLink = shareLink;
-    elements.shareLink.textContent = shareLink;
-    elements.shareLink.href = shareLink;
-
-    try {
-      const qrDataUrl = await window.kioskAPI.generateQRCode(shareLink);
-      elements.qrPreview.src = qrDataUrl;
-    } catch (error) {
-      console.warn("Failed to generate QR", error);
-    }
-
     closeQRDrawer();
     setFlow("result");
     updatePrintButtonState();
@@ -457,10 +511,62 @@
     state.autoResetTimer = setTimeout(() => resetFlow(), autoResetMs);
   };
 
-  const buildShareLink = () => {
-    const base = state.config?.shareBaseUrl || "https://example.com/selfy";
-    const sanitizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
-    return `${sanitizedBase}/${Date.now()}`;
+  const ensureShareLink = () => {
+    if (state.shareLink) {
+      return Promise.resolve(state.shareLink);
+    }
+    if (!state.lastPhotoDataUrl) {
+      return Promise.reject(new Error("No captured photo available."));
+    }
+    if (state.shareUploadPromise) {
+      return state.shareUploadPromise;
+    }
+    state.shareUploadPromise = uploadPhotoForShare().finally(() => {
+      state.shareUploadPromise = null;
+    });
+    return state.shareUploadPromise;
+  };
+
+  const uploadPhotoForShare = async () => {
+    try {
+      await backupPhotoLocally(state.lastPhotoDataUrl, "qr");
+      const response = await fetch(SHARE_UPLOAD_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageData: state.lastPhotoDataUrl,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          payload?.error || `Upload failed (${response.status}).`;
+        throw new Error(message);
+      }
+      if (!payload?.downloadUrl) {
+        throw new Error("Server did not return a download link.");
+      }
+      state.shareLink = payload.downloadUrl;
+      return state.shareLink;
+    } catch (error) {
+      state.shareLink = "";
+      throw error;
+    }
+  };
+
+  const renderShareArtifacts = async (shareLink) => {
+    updateShareLinkDisplay(shareLink);
+    try {
+      const qrDataUrl = await window.kioskAPI.generateQRCode(shareLink);
+      if (elements.qrPreview) {
+        elements.qrPreview.src = qrDataUrl;
+      }
+    } catch (error) {
+      console.warn("Failed to generate QR", error);
+      setQRStatus("Link ready. Reopen to refresh the QR code.");
+    }
   };
 
   const loadImageFromPath = (filePath) => {
@@ -624,9 +730,35 @@
 
   const mirrorCameraEnabled = () => state.config?.mirrorCamera !== false;
 
-  const toggleQRDrawer = () => {
-    state.qrVisible = !state.qrVisible;
-    applyQRDrawerState();
+  const handleQrToggle = async () => {
+    if (!state.lastPhotoDataUrl) {
+      return;
+    }
+    if (state.qrVisible) {
+      closeQRDrawer();
+      return;
+    }
+
+    setQrButtonBusy(true, "Uploading…");
+    setQRStatus("Uploading photo…");
+    try {
+      const shareLink = await ensureShareLink();
+      if (!shareLink) {
+        throw new Error("Share link is unavailable.");
+      }
+      await renderShareArtifacts(shareLink);
+      state.qrVisible = true;
+      applyQRDrawerState();
+      setQRStatus("Scan the code or tap the link to download.");
+    } catch (error) {
+      console.error("Failed to prepare QR link", error);
+      const message =
+        error?.message ||
+        "Unable to upload photo. Check the internet connection and try again.";
+      setQRStatus(message);
+    } finally {
+      setQrButtonBusy(false);
+    }
   };
 
   const closeQRDrawer = () => {
@@ -762,6 +894,7 @@
       updatePrintButtonState();
       setPrintStatus("Sending to printer…");
       const composition = await createPrintComposition();
+      await backupPhotoLocally(composition, "print");
       await window.kioskAPI.printPhoto(composition);
       setPrintStatus("Print job sent.");
     } catch (error) {

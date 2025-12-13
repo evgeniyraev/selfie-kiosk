@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('kioskAPI', {
   requestReset: () => ipcRenderer.send('kiosk:reset-flow'),
   generateQRCode: (text) => ipcRenderer.invoke('qrcode:generate', text),
   printPhoto: (dataUrl) => ipcRenderer.invoke('print:photo', dataUrl),
+  saveBackupPhoto: (imageData, reason) =>
+    ipcRenderer.invoke('backup:savePhoto', { imageData, reason }),
   onSheetsUpdate: (callback) => {
     ipcRenderer.on('printer:sheets', (_event, value) => callback(value));
   },

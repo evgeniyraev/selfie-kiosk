@@ -10,12 +10,12 @@
     previewVideoPath: "",
     activePointerId: null,
     activeHandleEl: null,
-    isAdjustingQuad: false
+    isAdjustingQuad: false,
+    defaultBackupPath: ""
   };
 
   const qs = (selector) => document.querySelector(selector);
   const elements = {
-    shareInput: qs('#shareBaseInput'),
     previewFPSInput: qs('#previewFPSInput'),
     mirrorCameraInput: qs('#mirrorCameraInput'),
     idleVideoList: qs('#idleVideoList'),
@@ -52,12 +52,17 @@
     cameraOverlay: qs('#settingsCameraOverlay'),
     cameraOverlayVideo: qs('#settingsCameraOverlayVideo'),
     stageOverlayImage: qs('#stageOverlayImage'),
-    toggleQuadEditBtn: qs('#toggleQuadEditBtn')
+    toggleQuadEditBtn: qs('#toggleQuadEditBtn'),
+    backupPathValue: qs('#backupPathValue'),
+    backupPathHint: qs('#backupPathHint'),
+    chooseBackupBtn: qs('#chooseBackupBtn'),
+    resetBackupBtn: qs('#resetBackupBtn')
   };
   const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
 
   const init = async () => {
     attachEvents();
+    state.defaultBackupPath = await window.settingsAPI.getDefaultBackupDir();
     const config = await window.settingsAPI.loadConfig();
     state.config = config;
     const firstVideo =
@@ -97,13 +102,6 @@
       });
     }
 
-    elements.shareInput.addEventListener('input', (event) => {
-      if (!state.config) {
-        return;
-      }
-      state.config.shareBaseUrl = event.target.value;
-    });
-
     elements.addOverlayBtn.addEventListener('click', async () => {
       if (!state.config) {
         return;
@@ -116,6 +114,29 @@
         renderOverlayList();
       }
     });
+
+    if (elements.chooseBackupBtn) {
+      elements.chooseBackupBtn.addEventListener('click', async () => {
+        if (!state.config) {
+          return;
+        }
+        const folder = await window.settingsAPI.selectDirectory();
+        if (folder) {
+          state.config.backupDirectory = folder;
+          renderBackupConfig();
+        }
+      });
+    }
+
+    if (elements.resetBackupBtn) {
+      elements.resetBackupBtn.addEventListener('click', () => {
+        if (!state.config) {
+          return;
+        }
+        state.config.backupDirectory = '';
+        renderBackupConfig();
+      });
+    }
 
     elements.saveBtn.addEventListener('click', async () => {
       if (!state.config) {
@@ -313,9 +334,6 @@
     ensureGlobalPreviewQuad();
     ensurePreviewVideoSelection();
     ensureActiveVideoSettings();
-    if (elements.shareInput) {
-      elements.shareInput.value = state.config.shareBaseUrl || '';
-    }
     renderVideoList('idle');
     renderVideoList('main');
     renderOverlayList();
@@ -323,6 +341,7 @@
     renderPreviewVisibility();
     renderResultTimer();
     renderPrinterConfig();
+    renderBackupConfig();
     updateCameraOverlayControls();
     updateStageMedia();
     syncTimelineMeta();
@@ -663,6 +682,29 @@
     elements.sheetsInput.value = printer.sheetsRemaining ?? 0;
     if (elements.mirrorCameraInput) {
       elements.mirrorCameraInput.checked = isCameraMirrored();
+    }
+  };
+
+  const renderBackupConfig = () => {
+    if (!elements.backupPathValue) {
+      return;
+    }
+    const custom =
+      typeof state.config?.backupDirectory === 'string'
+        ? state.config.backupDirectory.trim()
+        : '';
+    if (custom) {
+      elements.backupPathValue.textContent = custom;
+      if (elements.backupPathHint) {
+        elements.backupPathHint.textContent = 'Saving to the custom folder above.';
+      }
+    } else {
+      const fallback = state.defaultBackupPath || 'Application data folder';
+      elements.backupPathValue.textContent = fallback;
+      if (elements.backupPathHint) {
+        elements.backupPathHint.textContent =
+          'Using the default kiosk data folder for backups.';
+      }
     }
   };
 

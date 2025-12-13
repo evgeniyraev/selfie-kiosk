@@ -36,15 +36,6 @@
         </section>
 
         <section class="card">
-          <h2>Sharing</h2>
-          <div class="field">
-            <label>Share base URL</label>
-            <input id="shareBaseInput" type="url" placeholder="https://example.com/events/christmas" />
-            <small>This is combined with a timestamp to form the QR link.</small>
-          </div>
-        </section>
-
-        <section class="card">
           <h2>Santa overlays</h2>
           <p class="helper">Upload PNGs with transparent backgrounds to decorate captured selfies.</p>
           <div id="overlayList" class="overlay-list"></div>
@@ -73,6 +64,20 @@
             </div>
           </div>
           <small class="helper">Update sheets remaining whenever you reload the Mitsubishi CP-M1 cassette.</small>
+        </section>
+
+        <section class="card">
+          <h2>Backups</h2>
+          <p class="helper">Every print and QR upload is saved to disk for safekeeping.</p>
+          <div class="field">
+            <label>Backup folder</label>
+            <div id="backupPathValue" class="backup-path"></div>
+            <small id="backupPathHint" class="helper"></small>
+          </div>
+          <div class="backup-actions">
+            <button id="chooseBackupBtn" type="button">Choose folder</button>
+            <button id="resetBackupBtn" type="button" class="ghost">Use default location</button>
+          </div>
         </section>
 
         <section class="card span-columns preview-card">
