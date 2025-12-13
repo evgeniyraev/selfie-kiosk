@@ -14,11 +14,30 @@
     previewVisible: false,
     isPrinting: false,
     pendingOverlayPath: "",
+    overlayQueue: [],
     currentIdleVideo: "",
     currentMainVideo: null,
     settingsHoldTimer: null,
     qrVisible: false,
     isProduction: Boolean(window.kioskAPI?.isProduction),
+  };
+
+  const areArraysEqual = (a = [], b = []) => {
+    if (a === b) {
+      return true;
+    }
+    if (!Array.isArray(a) || !Array.isArray(b)) {
+      return false;
+    }
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
   };
 
   const elements = {
@@ -117,8 +136,14 @@
   };
 
   const applyConfig = (config) => {
+    const previousOverlays = state.config?.santaOverlays || [];
+    const nextOverlays = config?.santaOverlays || [];
+    const overlaysChanged = !areArraysEqual(previousOverlays, nextOverlays);
     state.config = config;
     state.pendingOverlayPath = "";
+    if (overlaysChanged) {
+      state.overlayQueue = [];
+    }
     state.currentIdleVideo = "";
     state.currentMainVideo = null;
     state.qrVisible = false;
@@ -365,13 +390,43 @@
     await showResult();
   };
 
+  const getRandomIndex = (max) => {
+    if (!max || max <= 0) {
+      return 0;
+    }
+    if (window.crypto?.getRandomValues) {
+      const buffer = new Uint32Array(1);
+      window.crypto.getRandomValues(buffer);
+      return buffer[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  const shuffleList = (items) => {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+    const copy = items.slice();
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = getRandomIndex(i + 1);
+      const temp = copy[i];
+      copy[i] = copy[j];
+      copy[j] = temp;
+    }
+    return copy;
+  };
+
   const pickOverlay = () => {
     if (!state.config?.santaOverlays?.length) {
       return "";
     }
 
-    const index = Math.floor(Math.random() * state.config.santaOverlays.length);
-    return state.config.santaOverlays[index];
+    if (!state.overlayQueue.length) {
+      state.overlayQueue = shuffleList(state.config.santaOverlays);
+    }
+
+    const nextOverlay = state.overlayQueue.shift();
+    return nextOverlay || state.config.santaOverlays[0];
   };
 
   const showResult = async () => {
