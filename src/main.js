@@ -293,6 +293,7 @@ const printImage = async (imageDataUrl, printer) => {
         width: 100%;
         height: 100%;
         display: block;
+        rotate: 90deg;
       }
     </style>
   </head>
