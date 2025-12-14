@@ -1083,8 +1083,8 @@
   const createPrintComposition = async () => {
     const { width, height } = getPrintCanvasSize();
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = height;
+    canvas.height = width;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
@@ -1093,11 +1093,41 @@
     ctx.save();
     ctx.translate(width / 2, height / 2);
     ctx.rotate(Math.PI / 2);
-    ctx.translate(-height / 2, -width / 2);
-    drawCoverImage(ctx, photo, height, width);
+    ctx.translate(-width / 2, -height / 2);
+    drawCoverImage(ctx, photo, width, height);
     ctx.restore();
 
+    if (!state.isProduction) {
+      debugPrintComposition(canvas);
+    }
+
     return canvas.toDataURL("image/png");
+  };
+
+  const debugPrintComposition = (canvas) => {
+    if (state._debugPreviewWindow && !state._debugPreviewWindow.closed) {
+      state._debugPreviewWindow.close();
+      state._debugPreviewWindow = null;
+    }
+    const preview = window.open(
+      "",
+      "print-composition-preview",
+      "width=600,height=400",
+    );
+    if (!preview) {
+      console.warn("Unable to open print preview window.");
+      return;
+    }
+    state._debugPreviewWindow = preview;
+    preview.document.title = "Print Composition Preview";
+    const img = preview.document.createElement("img");
+    img.src = canvas.toDataURL("image/png");
+    img.style.maxWidth = "100%";
+    img.style.display = "block";
+    img.style.margin = "0 auto";
+    preview.document.body.style.background = "#111";
+    preview.document.body.style.padding = "12px";
+    preview.document.body.appendChild(img);
   };
 
   const getPrinterDimensions = () => {
