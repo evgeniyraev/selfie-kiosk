@@ -1094,7 +1094,7 @@
     ctx.translate(width / 2, height / 2);
     ctx.rotate(Math.PI / 2);
     ctx.translate(-width / 2, -height / 2);
-    drawCoverImage(ctx, photo, width, height);
+    drawCoverImage(ctx, photo, height, width);
     ctx.restore();
 
     if (!state.isProduction) {
