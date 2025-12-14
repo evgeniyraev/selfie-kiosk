@@ -11,8 +11,21 @@
     activePointerId: null,
     activeHandleEl: null,
     isAdjustingQuad: false,
-    defaultBackupPath: ""
+    defaultBackupPath: "",
+    dragMode: null,
+    dragStartPoint: null,
+    initialQuad: null,
+    rectangleAnchor: null
   };
+
+  const DEFAULT_STAGE_WIDTH = 1080;
+  const DEFAULT_STAGE_HEIGHT = 1920;
+  const STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
+  const DEFAULT_RECT_WIDTH_RATIO = 0.9;
+  const DEFAULT_RECT_HEIGHT_RATIO = 0.75;
+  const DEFAULT_RECT_TOP_PX = 157;
+  const DEFAULT_PRINTER_ASPECT = 150 / 100;
+  const MIN_RECT_EDGE = 0.02;
 
   const qs = (selector) => document.querySelector(selector);
   const elements = {
@@ -56,7 +69,8 @@
     backupPathValue: qs('#backupPathValue'),
     backupPathHint: qs('#backupPathHint'),
     chooseBackupBtn: qs('#chooseBackupBtn'),
-    resetBackupBtn: qs('#resetBackupBtn')
+    resetBackupBtn: qs('#resetBackupBtn'),
+    previewShapeRadios: Array.from(document.querySelectorAll("input[name='previewShape']"))
   };
   const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
 
@@ -229,15 +243,21 @@
         }
         const printer = state.config.printer || {};
         const value = Number(event.target.value) || 0;
+        let aspectChanged = false;
         if (key === 'paperWidthInput') {
           printer.paperWidthMm = Math.max(50, value);
+          aspectChanged = true;
         } else if (key === 'paperHeightInput') {
           printer.paperHeightMm = Math.max(50, value);
+          aspectChanged = true;
         } else {
           printer.sheetsRemaining = Math.max(0, value);
         }
         state.config.printer = printer;
         renderPrinterConfig();
+        if (aspectChanged) {
+          renderQuad();
+        }
       });
     });
 
@@ -247,9 +267,49 @@
           return;
         }
         const index = Number(handle.dataset.index);
+        if (Number.isNaN(index)) {
+          return;
+        }
+        if (isRectangleMode()) {
+          const entry = getActiveMainVideo();
+          const anchorPoint = entry?.previewQuad?.[(index + 2) % 4];
+          state.rectangleAnchor = anchorPoint
+            ? { x: anchorPoint.x, y: anchorPoint.y }
+            : null;
+        }
         startHandleDrag(event, index, handle);
       });
     });
+
+    if (elements.stageWrapper) {
+      elements.stageWrapper.addEventListener('pointerdown', (event) => {
+        if (!state.config || !state.isAdjustingQuad) {
+          return;
+        }
+        if (event.target.closest('.corner-handle')) {
+          return;
+        }
+        if (event.button && event.button !== 0) {
+          return;
+        }
+        event.preventDefault();
+        startQuadTranslation(event);
+      });
+    }
+
+    if (elements.previewShapeRadios?.length) {
+      elements.previewShapeRadios.forEach((input) => {
+        input.addEventListener('change', () => {
+          if (!state.config || !input.checked) {
+            return;
+          }
+          state.config.previewShape = input.value;
+          enforceShapeMode();
+          renderQuad();
+          renderPreviewShapeControls();
+        });
+      });
+    }
 
     elements.autoResetInput.addEventListener('input', (event) => {
       if (!state.config) {
@@ -280,6 +340,11 @@
       state.dragHandleIndex = null;
       state.activePointerId = null;
       state.activeHandleEl = null;
+      state.dragMode = null;
+      state.initialQuad = null;
+      state.dragStartPoint = null;
+      state.rectangleAnchor = null;
+      elements.stageWrapper?.classList.remove('dragging');
     });
 
     elements.startCameraOverlayBtn.addEventListener('click', () => {
@@ -589,9 +654,11 @@
 
   const renderQuad = () => {
     ensureActiveVideoSettings();
+    enforceShapeMode();
     const entry = getActiveMainVideo();
     const quad = entry?.previewQuad || getGlobalPreviewQuad();
     if (!quad || !quad.length) {
+      renderPreviewShapeControls();
       return;
     }
 
@@ -601,6 +668,7 @@
 
     if (!width || !height) {
       requestAnimationFrame(renderQuad);
+      renderPreviewShapeControls();
       return;
     }
 
@@ -622,6 +690,7 @@
     }));
     applyPreviewTransformToElement(elements.cameraOverlay, quadPx, width, height);
     applyPreviewTransformToElement(elements.stageOverlayImage, quadPx, width, height);
+    renderPreviewShapeControls();
   };
 
   const startHandleDrag = (event, index, handleEl) => {
@@ -633,6 +702,9 @@
     state.dragHandleIndex = index;
     state.activePointerId = event.pointerId;
     state.activeHandleEl = handleEl;
+    state.dragMode = 'handle';
+    state.initialQuad = null;
+    state.dragStartPoint = null;
     handleEl?.setPointerCapture?.(event.pointerId);
     dragHandle(event);
   };
@@ -640,15 +712,90 @@
   const dragHandle = (event) => {
     event.preventDefault();
     const entry = getActiveMainVideo();
-    if (state.dragHandleIndex === null || !entry?.previewQuad) {
+    if (!entry?.previewQuad) {
+      return;
+    }
+
+    if (state.dragMode === 'translate') {
+      handleQuadTranslation(event, entry);
+      return;
+    }
+
+    if (state.dragHandleIndex === null) {
       return;
     }
 
     const rect = elements.stageWrapper.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
     const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
 
-    entry.previewQuad[state.dragHandleIndex] = { x, y };
+    if (isRectangleMode()) {
+      handleRectangleResize(entry, state.dragHandleIndex, { x, y });
+    } else {
+      entry.previewQuad[state.dragHandleIndex] = { x, y };
+    }
+    renderQuad();
+  };
+
+  const startQuadTranslation = (event) => {
+    if (!elements.stageWrapper) {
+      return;
+    }
+    const entry = getActiveMainVideo();
+    if (!entry?.previewQuad) {
+      return;
+    }
+    state.isDraggingRegion = true;
+    state.dragMode = 'translate';
+    state.dragHandleIndex = null;
+    state.activePointerId = event.pointerId;
+    state.activeHandleEl = elements.stageWrapper;
+    state.initialQuad = entry.previewQuad.map((point) => ({ ...point }));
+    state.dragStartPoint = { x: event.clientX, y: event.clientY };
+    elements.stageWrapper?.setPointerCapture?.(event.pointerId);
+    elements.stageWrapper?.classList.add('dragging');
+  };
+
+  const clampDeltaForAxis = (points, delta, axis) => {
+    let min = Infinity;
+    let max = -Infinity;
+    points.forEach((point) => {
+      const value = point[axis] + delta;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    });
+    if (min < 0) {
+      delta -= min;
+      max -= min;
+    }
+    if (max > 1) {
+      delta -= (max - 1);
+    }
+    return delta;
+  };
+
+  const handleQuadTranslation = (event, entry) => {
+    if (!state.initialQuad || !state.dragStartPoint) {
+      return;
+    }
+    if (!elements.stageWrapper) {
+      return;
+    }
+    const rect = elements.stageWrapper.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
+    let deltaX = (event.clientX - state.dragStartPoint.x) / rect.width;
+    let deltaY = (event.clientY - state.dragStartPoint.y) / rect.height;
+    deltaX = clampDeltaForAxis(state.initialQuad, deltaX, 'x');
+    deltaY = clampDeltaForAxis(state.initialQuad, deltaY, 'y');
+    entry.previewQuad = state.initialQuad.map((point) => ({
+      x: clamp(point.x + deltaX, 0, 1),
+      y: clamp(point.y + deltaY, 0, 1)
+    }));
     renderQuad();
   };
 
@@ -862,21 +1009,240 @@
     return augmented.map((row) => row[n]);
   };
 
+  const computeDefaultRectangleQuad = () => {
+    const aspect = getRectangleAspectRatio();
+    const normalizedAspect = aspect / STAGE_RATIO;
+    const topNormalized = clamp(
+      DEFAULT_RECT_TOP_PX / DEFAULT_STAGE_HEIGHT,
+      0,
+      0.95
+    );
+    const maxHeight = 1 - topNormalized;
+    let heightNormalized = Math.min(
+      clamp(DEFAULT_RECT_HEIGHT_RATIO, MIN_RECT_EDGE, 1),
+      maxHeight
+    );
+    let widthNormalized = heightNormalized * normalizedAspect;
+    if (widthNormalized > 1) {
+      const scale = 1 / widthNormalized;
+      widthNormalized = 1;
+      heightNormalized = Math.min(heightNormalized * scale, maxHeight);
+    }
+    const leftNormalized = clamp((1 - widthNormalized) / 2, 0, 1);
+    const rightNormalized = clamp(leftNormalized + widthNormalized, 0, 1);
+    const bottomNormalized = clamp(topNormalized + heightNormalized, 0, 1);
+    return [
+      { x: leftNormalized, y: topNormalized },
+      { x: rightNormalized, y: topNormalized },
+      { x: rightNormalized, y: bottomNormalized },
+      { x: leftNormalized, y: bottomNormalized }
+    ];
+  };
+
   const ensureGlobalPreviewQuad = () => {
     if (
       !Array.isArray(state.config?.previewQuad) ||
       state.config.previewQuad.length !== 4
     ) {
-      state.config.previewQuad = [
-        { x: 0.2, y: 0.2 },
-        { x: 0.8, y: 0.2 },
-        { x: 0.8, y: 0.8 },
-        { x: 0.2, y: 0.8 }
-      ];
+      state.config.previewQuad = computeDefaultRectangleQuad();
     }
   };
 
   const getGlobalPreviewQuad = () => state.config?.previewQuad || [];
+
+  const getPreviewShape = () =>
+    state.config?.previewShape === 'rectangle' ? 'rectangle' : 'free';
+
+  const isRectangleMode = () => getPreviewShape() === 'rectangle';
+
+  const getPrinterAspectRatio = () => {
+    const width = Number(state.config?.printer?.paperWidthMm);
+    const height = Number(state.config?.printer?.paperHeightMm);
+    if (width > 0 && height > 0) {
+      return width / height;
+    }
+    return DEFAULT_PRINTER_ASPECT;
+  };
+
+  const getRectangleAspectRatio = () => Math.max(getPrinterAspectRatio(), 0.01);
+
+  const buildRectangleQuadFromCenter = (cx, cy, halfWidth, halfHeight) => [
+    { x: cx - halfWidth, y: cy - halfHeight },
+    { x: cx + halfWidth, y: cy - halfHeight },
+    { x: cx + halfWidth, y: cy + halfHeight },
+    { x: cx - halfWidth, y: cy + halfHeight }
+  ];
+
+  const buildRectangleQuadFromBounds = (minX, minY, maxX, maxY) => [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: maxX, y: maxY },
+    { x: minX, y: maxY }
+  ];
+
+  const convertQuadToRectangle = (quad = []) => {
+    if (!quad.length) {
+      return computeDefaultRectangleQuad();
+    }
+    const xs = quad.map((point) => point?.x ?? 0.5);
+    const ys = quad.map((point) => point?.y ?? 0.5);
+    let minX = Math.min(...xs);
+    let maxX = Math.max(...xs);
+    let minY = Math.min(...ys);
+    let maxY = Math.max(...ys);
+    minX = clamp(minX, 0, 1);
+    maxX = clamp(maxX, 0, 1);
+    minY = clamp(minY, 0, 1);
+    maxY = clamp(maxY, 0, 1);
+    const aspect = getRectangleAspectRatio();
+    const normalizedAspect = aspect / STAGE_RATIO;
+    let width = Math.max(0.05, maxX - minX);
+    let height = Math.max(0.05, maxY - minY);
+    if (height === 0) {
+      height = 0.05;
+    }
+    const currentRatio = height > 0 ? width / height : normalizedAspect;
+    if (currentRatio > normalizedAspect) {
+      width = height * normalizedAspect;
+    } else {
+      height = width / normalizedAspect;
+    }
+    let centerX = clamp((minX + maxX) / 2, 0, 1);
+    let centerY = clamp((minY + maxY) / 2, 0, 1);
+    const maxHalfWidth = Math.min(centerX, 1 - centerX);
+    const maxHalfHeight = Math.min(centerY, 1 - centerY);
+    let halfWidth = Math.min(width / 2, maxHalfWidth);
+    let halfHeight = Math.min(height / 2, maxHalfHeight);
+    if (halfHeight > maxHalfHeight) {
+      halfHeight = maxHalfHeight;
+      halfWidth = halfHeight * normalizedAspect;
+    }
+    if (halfWidth <= 0 || Number.isNaN(halfWidth)) {
+      halfWidth = 0.2;
+      halfHeight = halfWidth / normalizedAspect;
+    }
+    if (halfHeight <= 0 || Number.isNaN(halfHeight)) {
+      halfHeight = 0.2;
+      halfWidth = halfHeight * normalizedAspect;
+    }
+    centerX = clamp(centerX, halfWidth, 1 - halfWidth);
+    centerY = clamp(centerY, halfHeight, 1 - halfHeight);
+    return buildRectangleQuadFromCenter(centerX, centerY, halfWidth, halfHeight);
+  };
+
+  const handleRectangleResize = (entry, handleIndex, targetPoint) => {
+    if (
+      !entry?.previewQuad ||
+      entry.previewQuad.length !== 4 ||
+      typeof handleIndex !== 'number'
+    ) {
+      return;
+    }
+    const anchor =
+      state.rectangleAnchor ||
+      entry.previewQuad[(handleIndex + 2) % 4] || { x: 0.5, y: 0.5 };
+    const aspect = getRectangleAspectRatio();
+    const normalizedAspect = aspect / STAGE_RATIO;
+    const dirX = handleIndex === 0 || handleIndex === 3 ? -1 : 1;
+    const dirY = handleIndex === 0 || handleIndex === 1 ? -1 : 1;
+    let pointerX = clamp(targetPoint.x, 0, 1);
+    let pointerY = clamp(targetPoint.y, 0, 1);
+    if ((pointerX - anchor.x) * dirX <= 0) {
+      pointerX = clamp(anchor.x + dirX * MIN_RECT_EDGE, 0, 1);
+    }
+    if ((pointerY - anchor.y) * dirY <= 0) {
+      pointerY = clamp(anchor.y + dirY * MIN_RECT_EDGE, 0, 1);
+    }
+    let width = Math.max(Math.abs(pointerX - anchor.x), MIN_RECT_EDGE);
+    let height = Math.max(Math.abs(pointerY - anchor.y), MIN_RECT_EDGE);
+    const currentRatio = height > 0 ? width / height : normalizedAspect;
+    if (currentRatio > normalizedAspect) {
+      width = height * normalizedAspect;
+    } else {
+      height = width / normalizedAspect;
+    }
+    let minX;
+    let maxX;
+    if (dirX < 0) {
+      maxX = clamp(anchor.x, 0, 1);
+      minX = clamp(maxX - width, 0, maxX - MIN_RECT_EDGE);
+      width = maxX - minX;
+    } else {
+      minX = clamp(anchor.x, 0, 1);
+      maxX = clamp(minX + width, minX + MIN_RECT_EDGE, 1);
+      width = maxX - minX;
+    }
+    let minY;
+    let maxY;
+    if (dirY < 0) {
+      maxY = clamp(anchor.y, 0, 1);
+      minY = clamp(maxY - height, 0, maxY - MIN_RECT_EDGE);
+      height = maxY - minY;
+    } else {
+      minY = clamp(anchor.y, 0, 1);
+      maxY = clamp(minY + height, minY + MIN_RECT_EDGE, 1);
+      height = maxY - minY;
+    }
+    const adjustedAspect = width / Math.max(height, MIN_RECT_EDGE);
+    if (Math.abs(adjustedAspect - normalizedAspect) > 0.001) {
+      if (adjustedAspect > normalizedAspect) {
+        width = height * normalizedAspect;
+        if (dirX < 0) {
+          minX = Math.max(0, maxX - width);
+        } else {
+          maxX = Math.min(1, minX + width);
+        }
+      } else {
+        height = width / normalizedAspect;
+        if (dirY < 0) {
+          minY = Math.max(0, maxY - height);
+        } else {
+          maxY = Math.min(1, minY + height);
+        }
+      }
+    }
+    entry.previewQuad = buildRectangleQuadFromBounds(minX, minY, maxX, maxY);
+  };
+
+  const getQuadCenter = (quad = []) => {
+    if (!quad.length) {
+      return { x: 0.5, y: 0.5 };
+    }
+    const p0 = quad[0] || { x: 0.5, y: 0.5 };
+    const p2 = quad[2] || { x: 0.5, y: 0.5 };
+    return {
+      x: clamp((p0.x + p2.x) / 2, 0, 1),
+      y: clamp((p0.y + p2.y) / 2, 0, 1)
+    };
+  };
+
+  const enforceShapeMode = () => {
+    if (!isRectangleMode()) {
+      return;
+    }
+    const entry = getActiveMainVideo();
+    if (entry?.previewQuad) {
+      entry.previewQuad = convertQuadToRectangle(entry.previewQuad);
+    } else if (state.config?.previewQuad?.length === 4) {
+      state.config.previewQuad = convertQuadToRectangle(state.config.previewQuad);
+    }
+  };
+
+  const renderPreviewShapeControls = () => {
+    const mode = getPreviewShape();
+    const isRect = mode === 'rectangle';
+    if (elements.previewShapeRadios?.length) {
+      elements.previewShapeRadios.forEach((input) => {
+        input.checked = input.value === mode;
+      });
+    }
+    if (elements.handlesLayer) {
+      elements.handlesLayer.classList.remove('hidden');
+    }
+    if (elements.stageWrapper) {
+      elements.stageWrapper.classList.toggle('drag-enabled', state.isAdjustingQuad);
+    }
+  };
 
   const clonePreviewQuad = (quad = []) =>
     quad.map((point) => ({ x: point.x, y: point.y }));
@@ -975,6 +1341,7 @@
     }
     if (elements.cameraOverlay) {
       elements.cameraOverlay.classList.add('hidden');
+      elements.cameraOverlay.classList.remove('rectangular');
       elements.cameraOverlay.style.transform = '';
     }
     updateCameraOverlayStatus('Camera overlay is off.');
@@ -1011,6 +1378,20 @@
     if (!element || !quadPx || !width || !height) {
       return;
     }
+    const useRectangle = isRectangleMode();
+    if (useRectangle) {
+      const bounds = getQuadBoundsPx(quadPx);
+      if (bounds && bounds.width > 0 && bounds.height > 0) {
+        element.classList.add('rectangular');
+        element.style.transform = '';
+        element.style.left = `${bounds.minX}px`;
+        element.style.top = `${bounds.minY}px`;
+        element.style.width = `${bounds.width}px`;
+        element.style.height = `${bounds.height}px`;
+        return;
+      }
+    }
+    element.classList.remove('rectangular');
     element.style.left = '0px';
     element.style.top = '0px';
     element.style.width = `${width}px`;
@@ -1021,6 +1402,43 @@
     } else {
       element.style.transform = '';
     }
+  };
+
+  const getQuadBoundsPx = (points = []) => {
+    if (!Array.isArray(points) || points.length !== 4) {
+      return null;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    points.forEach((point) => {
+      if (!point) {
+        return;
+      }
+      const x = Number(point.x) || 0;
+      const y = Number(point.y) || 0;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+    if (
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY)
+    };
   };
 
   const togglePlayback = () => {
@@ -1097,6 +1515,7 @@
     if (elements.handlesLayer) {
       elements.handlesLayer.classList.toggle('locked', !state.isAdjustingQuad);
     }
+    renderPreviewShapeControls();
   };
 
   const updateCueButtonsState = () => {

@@ -110,6 +110,20 @@
               <button id="stopCameraOverlayBtn" type="button" disabled>Hide camera</button>
               <small id="cameraOverlayStatus" class="helper">Camera overlay is off.</small>
             </div>
+            <div class="field">
+              <label>Camera window shape</label>
+              <div class="shape-options">
+                <label>
+                  <input type="radio" name="previewShape" value="free" checked />
+                  Free form
+                </label>
+                <label>
+                  <input type="radio" name="previewShape" value="rectangle" />
+                  Rectangle (locked aspect)
+                </label>
+              </div>
+              <small>Drag the corners in free mode. In rectangle mode drag the camera window to move it.</small>
+            </div>
             <div class="field checkbox-field">
               <label>
                 <input type="checkbox" id="mirrorCameraInput" />

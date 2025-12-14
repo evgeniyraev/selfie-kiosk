@@ -4,18 +4,73 @@ const { app } = require("electron");
 
 const CONFIG_FILE_NAME = "christmass-selfy-settings.json";
 
+const DEFAULT_STAGE_WIDTH = 1080;
+const DEFAULT_STAGE_HEIGHT = 1920;
+const DEFAULT_RECTANGLE_WIDTH_RATIO = 0.9;
+const DEFAULT_RECTANGLE_HEIGHT_RATIO = 0.75;
+const DEFAULT_RECTANGLE_TOP_PX = 157;
+const STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
+
+const DEFAULT_PRINTER = {
+  deviceName: "",
+  paperWidthMm: 150,
+  paperHeightMm: 100,
+  sheetsRemaining: 0,
+};
+
+const FALLBACK_PRINTER_ASPECT =
+  DEFAULT_PRINTER.paperWidthMm / DEFAULT_PRINTER.paperHeightMm;
+
+const clampNormalized = (value, min = 0, max = 1) =>
+  Math.min(Math.max(value, min), max);
+
+const getPrinterAspectRatioValue = (printer = DEFAULT_PRINTER) => {
+  const width = Number(printer?.paperWidthMm);
+  const height = Number(printer?.paperHeightMm);
+  if (width > 0 && height > 0) {
+    return width / height;
+  }
+  return FALLBACK_PRINTER_ASPECT;
+};
+
+const computeDefaultPreviewQuad = (printer = DEFAULT_PRINTER) => {
+  const aspect = Math.max(getPrinterAspectRatioValue(printer), 0.01);
+  const normalizedAspect = aspect / STAGE_RATIO;
+  const topNormalized = clampNormalized(
+    DEFAULT_RECTANGLE_TOP_PX / DEFAULT_STAGE_HEIGHT,
+    0,
+    0.95,
+  );
+  const maxHeight = 1 - topNormalized;
+  let heightNormalized = Math.min(
+    clampNormalized(DEFAULT_RECTANGLE_HEIGHT_RATIO),
+    maxHeight,
+  );
+  let widthNormalized = heightNormalized * normalizedAspect;
+  if (widthNormalized > 1) {
+    const scale = 1 / widthNormalized;
+    widthNormalized = 1;
+    heightNormalized = Math.min(heightNormalized * scale, maxHeight);
+  }
+  const leftNormalized = clampNormalized((1 - widthNormalized) / 2);
+  const rightNormalized = clampNormalized(leftNormalized + widthNormalized);
+  const bottomNormalized = clampNormalized(topNormalized + heightNormalized);
+  return [
+    { x: leftNormalized, y: topNormalized },
+    { x: rightNormalized, y: topNormalized },
+    { x: rightNormalized, y: bottomNormalized },
+    { x: leftNormalized, y: bottomNormalized },
+  ];
+};
+
 const defaultConfig = {
   idleVideo: "",
   mainVideo: "",
   idleVideos: [],
   mainVideos: [],
   backupDirectory: "",
-  previewQuad: [
-    { x: 0.58, y: 0.18 },
-    { x: 0.9, y: 0.2 },
-    { x: 0.92, y: 0.58 },
-    { x: 0.6, y: 0.62 },
-  ],
+  previewShape: "rectangle",
+  previewQuad: computeDefaultPreviewQuad(DEFAULT_PRINTER),
   previewVisibility: {
     startMs: 4000,
     endMs: 7500,
@@ -28,10 +83,7 @@ const defaultConfig = {
     captureAtMs: 8500,
   },
   printer: {
-    deviceName: "",
-    paperWidthMm: 150,
-    paperHeightMm: 100,
-    sheetsRemaining: 0,
+    ...DEFAULT_PRINTER,
   },
   mirrorCamera: true,
   santaOverlays: [],
@@ -120,6 +172,12 @@ const mergeWithDefaults = (partialConfig = {}) => {
     typeof partialConfig.backupDirectory === "string"
       ? partialConfig.backupDirectory.trim()
       : "";
+  const requestedShape = partialConfig.previewShape;
+  if (requestedShape === "rectangle" || requestedShape === "free") {
+    merged.previewShape = requestedShape;
+  } else {
+    merged.previewShape = defaultConfig.previewShape;
+  }
   merged.printer.sheetsRemaining = Math.max(
     0,
     Number(merged.printer.sheetsRemaining) || 0,
@@ -144,7 +202,14 @@ const resolvePreviewQuad = (partialConfig) => {
     );
   }
 
-  return normalizePreviewQuad(defaultConfig.previewQuad);
+  return normalizePreviewQuad(
+    computeDefaultPreviewQuad({
+      paperWidthMm:
+        partialConfig?.printer?.paperWidthMm ?? DEFAULT_PRINTER.paperWidthMm,
+      paperHeightMm:
+        partialConfig?.printer?.paperHeightMm ?? DEFAULT_PRINTER.paperHeightMm,
+    }),
+  );
 };
 
 const convertRegionToQuad = (region) => {
@@ -193,7 +258,8 @@ const normalizeMediaList = (config, listKey, singleKey) => {
 };
 
 const normalizeMainVideos = (config) => {
-  const fallbackVisibility = config.previewVisibility || defaultConfig.previewVisibility;
+  const fallbackVisibility =
+    config.previewVisibility || defaultConfig.previewVisibility;
   const list = Array.isArray(config.mainVideos) ? config.mainVideos : [];
   const normalized = [];
   const seen = new Map();

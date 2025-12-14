@@ -26,41 +26,76 @@
                     playsinline
                 ></video>
                 <div id="previewRegion" class="preview-region hidden">
-                    <video id="webcamPreview" autoplay muted playsinline></video>
-                    <img id="previewOverlay" alt="" class="preview-overlay hidden" />
+                    <video
+                        id="webcamPreview"
+                        autoplay
+                        muted
+                        playsinline
+                    ></video>
+                    <img
+                        id="previewOverlay"
+                        alt=""
+                        class="preview-overlay hidden"
+                    />
                 </div>
             </div>
 
             <div id="resultPanel" class="result-panel hidden">
-                <div class="result-media">
-                    <img id="resultPhoto" alt="Your photo" />
+                <div class="result-frame">
+                    <div class="result-media">
+                        <img id="resultPhoto" alt="Your photo" />
+                    </div>
                 </div>
                 <div class="result-actions">
                     <div class="action-buttons">
-                        <button id="retryBtn" class="ghost-btn">Retry</button>
-                        <button id="printBtn">Print</button>
-                        <button id="qrToggleBtn" class="ghost-btn">Show QR</button>
+                        <button
+                            id="qrToggleBtn"
+                            class="wood-button btn-qr"
+                            type="button"
+                        ></button>
+                        <button
+                            id="retryBtn"
+                            class="wood-button btn-retry"
+                            type="button"
+                            aria-label="Retry capture"
+                        ></button>
+                        <button
+                            id="printBtn"
+                            class="wood-button btn-print"
+                            type="button"
+                        ></button>
                     </div>
-                    <div class="sheet-count">
-                        Sheets left: <span id="sheetsLeft">--</span>
+                    <div class="action-meta">
+                        <div class="sheet-count">
+                            Sheets left: <span id="sheetsLeft">--</span>
+                        </div>
+                        <p id="printStatus" class="print-status"></p>
                     </div>
-                    <p id="printStatus" class="print-status"></p>
-                </div>
-                <div id="qrDrawer" class="qr-drawer hidden">
-                    <div class="qr-block">
-                        <img id="qrPreview" class="qr-preview" alt="QR code" />
-                        <div class="qr-text">
-                            <p>Scan to download</p>
-                            <a
-                                id="shareLink"
-                                class="share-link"
-                                target="_blank"
-                                rel="noreferrer"
-                            ></a>
-                            <p id="qrStatus" class="qr-status"></p>
+                    <div id="qrDrawer" class="qr-drawer hidden">
+                        <div class="qr-block">
+                            <img
+                                id="qrPreview"
+                                class="qr-preview"
+                                alt="QR code"
+                            />
+                            <div class="qr-text">
+                                <p>Scan to download</p>
+                                <a
+                                    id="shareLink"
+                                    class="share-link"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                ></a>
+                                <p id="qrStatus" class="qr-status"></p>
+                            </div>
                         </div>
                     </div>
                 </div>
+                <img
+                    src="../../assets/Logo_000.jpeg"
+                    alt="Holiday tagline"
+                    class="result-tagline"
+                />
             </div>
 
             <div id="messagePanel" class="message-panel hidden">

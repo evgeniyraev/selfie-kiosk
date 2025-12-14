@@ -23,6 +23,7 @@
     qrVisible: false,
     shareUploadPromise: null,
     isProduction: Boolean(window.kioskAPI?.isProduction),
+    lastOverlayPath: ""
   };
 
   const areArraysEqual = (a = [], b = []) => {
@@ -53,6 +54,7 @@
     previewOverlay: document.getElementById("previewOverlay"),
     resultPanel: document.getElementById("resultPanel"),
     resultPhoto: document.getElementById("resultPhoto"),
+    resultOverlay: document.getElementById("resultOverlay"),
     qrPreview: document.getElementById("qrPreview"),
     shareLink: document.getElementById("shareLink"),
     qrStatus: document.getElementById("qrStatus"),
@@ -99,6 +101,19 @@
     clearQrPreview();
     updateShareLinkDisplay("");
     setQRStatus(SHARE_DEFAULT_STATUS);
+  };
+
+  const updateResultOverlay = () => {
+    if (!elements.resultOverlay) {
+      return;
+    }
+    if (state.lastOverlayPath) {
+      elements.resultOverlay.src = toFileSrc(state.lastOverlayPath);
+      elements.resultOverlay.classList.remove("hidden");
+    } else {
+      elements.resultOverlay.removeAttribute("src");
+      elements.resultOverlay.classList.add("hidden");
+    }
   };
 
   const setQrButtonBusy = (isBusy, label) => {
@@ -223,6 +238,7 @@
     updateMirrorPreviewState();
     updateSheetDisplay();
     updatePrintButtonState();
+    updatePaperAspectRatio();
     setPrintStatus(
       state.config?.printer?.deviceName
         ? ""
@@ -280,13 +296,14 @@
   };
 
   const startCaptureFlow = (options = {}) => {
+    const { forceVideoPath } = options;
     if (!hasValidConfig(state.config)) {
       toggleMessage(true, "Configure sources before starting.");
       return;
     }
 
     clearTimers();
-    if (!prepareMainVideoForFlow()) {
+    if (!prepareMainVideoForFlow({ forcePath: forceVideoPath })) {
       toggleMessage(true, "Add at least one main experience video to start.");
       resetFlow();
       return;
@@ -326,9 +343,11 @@
     elements.mainVideo.pause();
     elements.mainVideo.currentTime = 0;
     state.lastPhotoDataUrl = null;
+    state.lastOverlayPath = "";
     resetShareState();
     state.pendingOverlayPath = "";
     updatePreviewOverlay();
+    updateResultOverlay();
     setPreviewVisibility(false);
     closeQRDrawer();
     prepareIdleVideo({ forceDifferent: true });
@@ -409,13 +428,16 @@
     canvas.width = targetWidth;
     canvas.height = targetHeight;
 
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
     const shouldMirror = mirrorCameraEnabled();
     if (shouldMirror) {
       ctx.save();
       ctx.translate(targetWidth, 0);
       ctx.scale(-1, 1);
     }
-    const scale = Math.max(
+    const scale = Math.min(
       targetWidth / (video.videoWidth || targetWidth),
       targetHeight / (video.videoHeight || targetHeight),
     );
@@ -447,7 +469,8 @@
         console.warn("Unable to load overlay", overlayPath, error);
       }
     }
-
+    state.lastOverlayPath = overlayPath || "";
+    updateResultOverlay();
     state.lastPhotoDataUrl = canvas.toDataURL("image/png");
     if (hidePreview) {
       setPreviewVisibility(false);
@@ -625,15 +648,29 @@
       return;
     }
 
+    const quadPx = mapQuadToStage(quad, stageWidth, stageHeight);
+    let appliedRectangle = false;
+    if (isRectanglePreview()) {
+      const bounds = getQuadBoundsPx(quadPx);
+      if (bounds && bounds.width > 0 && bounds.height > 0) {
+        elements.previewRegion.classList.add("rectangular");
+        elements.previewRegion.style.transform = "";
+        elements.previewRegion.style.left = `${bounds.minX}px`;
+        elements.previewRegion.style.top = `${bounds.minY}px`;
+        elements.previewRegion.style.width = `${bounds.width}px`;
+        elements.previewRegion.style.height = `${bounds.height}px`;
+        appliedRectangle = true;
+      }
+    }
+    if (appliedRectangle) {
+      return;
+    }
+    elements.previewRegion.classList.remove("rectangular");
+
     elements.previewRegion.style.left = "0px";
     elements.previewRegion.style.top = "0px";
     elements.previewRegion.style.width = `${stageWidth}px`;
     elements.previewRegion.style.height = `${stageHeight}px`;
-
-    const quadPx = quad.map((point) => ({
-      x: point.x * stageWidth,
-      y: point.y * stageHeight,
-    }));
 
     const matrix = computePerspectiveMatrix(quadPx, stageWidth, stageHeight);
     if (matrix) {
@@ -657,6 +694,62 @@
       return state.config.previewQuad;
     }
     return null;
+  };
+
+  const getPreviewShape = () =>
+    state.config?.previewShape === "rectangle" ? "rectangle" : "free";
+
+  const isRectanglePreview = () => getPreviewShape() === "rectangle";
+
+  const clampUnit = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return 0;
+    }
+    return Math.min(Math.max(number, 0), 1);
+  };
+
+  const mapQuadToStage = (quad = [], stageWidth, stageHeight) =>
+    quad.map((point) => ({
+      x: clampUnit(point?.x) * stageWidth,
+      y: clampUnit(point?.y) * stageHeight,
+    }));
+
+  const getQuadBoundsPx = (points = []) => {
+    if (!Array.isArray(points) || points.length !== 4) {
+      return null;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    points.forEach((point) => {
+      if (!point) {
+        return;
+      }
+      const x = Number(point.x) || 0;
+      const y = Number(point.y) || 0;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+    if (
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY),
+    };
   };
 
   const updateIdlePlayback = (shouldPlay) => {
@@ -804,7 +897,7 @@
     }
   };
 
-  const prepareMainVideoForFlow = () => {
+  const prepareMainVideoForFlow = ({ forcePath } = {}) => {
     const pool = Array.isArray(state.config?.mainVideos)
       ? state.config.mainVideos
       : [];
@@ -814,9 +907,18 @@
       return false;
     }
 
-    const excludePath =
-      pool.length > 1 ? state.currentMainVideo?.path || null : null;
-    const next = pickRandomVideoEntry(pool, excludePath);
+    let next = null;
+    if (forcePath) {
+      next =
+        pool.find((item) => item?.path === forcePath) ||
+        state.currentMainVideo ||
+        null;
+    }
+    if (!next) {
+      const excludePath =
+        pool.length > 1 ? state.currentMainVideo?.path || null : null;
+      next = pickRandomVideoEntry(pool, excludePath);
+    }
     if (!next) {
       state.currentMainVideo = null;
       setMediaSource(elements.mainVideo, "");
@@ -879,6 +981,13 @@
     elements.printBtn.disabled = !hasPrinter || !hasPhoto || state.isPrinting;
   };
 
+  const updatePaperAspectRatio = () => {
+    const width = Number(state.config?.printer?.paperWidthMm) || 150;
+    const height = Number(state.config?.printer?.paperHeightMm) || 100;
+    const ratio = Math.max(width / height, 0.1);
+    document.documentElement.style.setProperty("--paper-aspect", ratio);
+  };
+
   const handlePrint = async () => {
     if (!state.lastPhotoDataUrl || state.isPrinting) {
       return;
@@ -921,10 +1030,12 @@
       return;
     }
     closeQRDrawer();
+    const currentVideoPath = state.currentMainVideo?.path || null;
     resetFlow();
     requestAnimationFrame(() =>
       startCaptureFlow({
         leadInMs: RETRY_LEAD_MS,
+        forceVideoPath: currentVideoPath,
       }),
     );
   };
@@ -970,7 +1081,7 @@
     ctx.translate(width / 2, height / 2);
     ctx.rotate(Math.PI / 2);
     ctx.translate(-height / 2, -width / 2);
-    drawCoverImage(ctx, photo, height, width);
+    drawContainImage(ctx, photo, height, width);
     ctx.restore();
 
     return canvas.toDataURL("image/png");
@@ -1012,16 +1123,36 @@
     });
   };
 
+  const getImageDimensions = (image) => {
+    if (!image) {
+      return { width: 1, height: 1 };
+    }
+    const width = image.videoWidth || image.naturalWidth || image.width || 1;
+    const height = image.videoHeight || image.naturalHeight || image.height || 1;
+    return { width, height };
+  };
+
   const drawCoverImage = (ctx, image, targetWidth, targetHeight) => {
     if (!ctx || !image) {
       return;
     }
-    const scale = Math.max(
-      targetWidth / image.width,
-      targetHeight / image.height,
-    );
-    const drawWidth = image.width * scale;
-    const drawHeight = image.height * scale;
+    const { width: sourceWidth, height: sourceHeight } = getImageDimensions(image);
+    const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    const offsetX = (targetWidth - drawWidth) / 2;
+    const offsetY = (targetHeight - drawHeight) / 2;
+    ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+  };
+
+  const drawContainImage = (ctx, image, targetWidth, targetHeight) => {
+    if (!ctx || !image) {
+      return;
+    }
+    const { width: sourceWidth, height: sourceHeight } = getImageDimensions(image);
+    const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
     const offsetX = (targetWidth - drawWidth) / 2;
     const offsetY = (targetHeight - drawHeight) / 2;
     ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);

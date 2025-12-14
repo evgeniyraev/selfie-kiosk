@@ -106,6 +106,23 @@ h1 {
   color: #8f96b7;
 }
 
+.shape-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.shape-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.shape-options input {
+  accent-color: #ff355e;
+}
+
 input[type='text'],
 input[type='url'] {
   padding: 10px 14px;
@@ -356,10 +373,14 @@ input[type='url'] {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: transparent;
   border-radius: 18px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
   transition: transform 0.2s ease;
+}
+
+#settingsCameraOverlay.rectangular #settingsCameraOverlayVideo {
+  object-fit: cover;
 }
 
 #settingsCameraOverlayVideo.mirrored {
@@ -383,6 +404,10 @@ input[type='url'] {
   pointer-events: none;
   z-index: 7;
   transition: opacity 0.2s ease;
+}
+
+.handles.hidden {
+  display: none;
 }
 
 .handles.locked .corner-handle {
@@ -412,6 +437,14 @@ input[type='url'] {
 }
 
 .corner-handle:active {
+  cursor: grabbing;
+}
+
+.stage-wrapper.drag-enabled {
+  cursor: grab;
+}
+
+.stage-wrapper.drag-enabled.dragging {
   cursor: grabbing;
 }
 
