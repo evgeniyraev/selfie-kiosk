@@ -307,7 +307,11 @@
   };
 
   const getWorkingHoursConfig = () =>
-    state.config?.workingHours || { enabled: false, start: "09:00", end: "21:00" };
+    state.config?.workingHours || {
+      enabled: false,
+      start: "09:00",
+      end: "21:00",
+    };
 
   const parseTimeToMinutes = (value) => {
     if (typeof value !== "string") {
@@ -583,7 +587,6 @@
     }, 60000);
   };
 
-
   const setFlow = (nextFlow) => {
     state.flow = nextFlow;
     elements.body.dataset.flow = nextFlow;
@@ -749,16 +752,8 @@
     const sourceHeight = Math.max(1, captureCrop.height * videoHeight);
     const maxSourceX = Math.max(0, videoWidth - sourceWidth);
     const maxSourceY = Math.max(0, videoHeight - sourceHeight);
-    const sourceX = clampNumber(
-      captureCrop.x * videoWidth,
-      0,
-      maxSourceX,
-    );
-    const sourceY = clampNumber(
-      captureCrop.y * videoHeight,
-      0,
-      maxSourceY,
-    );
+    const sourceX = clampNumber(captureCrop.x * videoWidth, 0, maxSourceX);
+    const sourceY = clampNumber(captureCrop.y * videoHeight, 0, maxSourceY);
     const scale = Math.max(
       targetWidth / sourceWidth,
       targetHeight / sourceHeight,
@@ -1086,11 +1081,7 @@
   const normalizeCameraCropRect = (crop = {}) => {
     let x = clampNumber(Number(crop?.x) || 0, 0, 1);
     let y = clampNumber(Number(crop?.y) || 0, 0, 1);
-    let width = clampNumber(
-      Number(crop?.width) || 1,
-      MIN_CAMERA_CROP_EDGE,
-      1,
-    );
+    let width = clampNumber(Number(crop?.width) || 1, MIN_CAMERA_CROP_EDGE, 1);
     let height = clampNumber(
       Number(crop?.height) || 1,
       MIN_CAMERA_CROP_EDGE,
@@ -1505,12 +1496,12 @@
     canvas.height = canvasHeight;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillRect(0, 0, canvasHeight, canvasWidth);
 
     const photo = await loadImage(state.lastPhotoDataUrl);
     ctx.save();
     ctx.translate(canvasWidth / 2, canvasHeight / 2);
-    ctx.rotate(Math.PI / 2);
+    // ctx.rotate(Math.PI / 2);
     ctx.translate(-canvasHeight / 2, -canvasWidth / 2);
     drawCoverImage(ctx, photo, canvasHeight, canvasWidth);
     ctx.restore();
