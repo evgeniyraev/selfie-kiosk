@@ -70,6 +70,7 @@
     backupPathHint: qs('#backupPathHint'),
     chooseBackupBtn: qs('#chooseBackupBtn'),
     resetBackupBtn: qs('#resetBackupBtn'),
+    sheetQuickButtons: Array.from(document.querySelectorAll('[data-quick-sheets]')),
     previewShapeRadios: Array.from(document.querySelectorAll("input[name='previewShape']"))
   };
   const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
@@ -260,6 +261,25 @@
         }
       });
     });
+
+    if (elements.sheetQuickButtons?.length) {
+      elements.sheetQuickButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          if (!state.config) {
+            return;
+          }
+          const increment = Number(button.dataset.quickSheets);
+          if (!Number.isFinite(increment)) {
+            return;
+          }
+          const printer = { ...(state.config.printer || {}) };
+          const current = Number(printer.sheetsRemaining) || 0;
+          printer.sheetsRemaining = Math.max(0, current + increment);
+          state.config.printer = printer;
+          renderPrinterConfig();
+        });
+      });
+    }
 
     elements.handles.forEach((handle) => {
       handle.addEventListener('pointerdown', (event) => {

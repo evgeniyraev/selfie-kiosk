@@ -60,7 +60,15 @@
             </div>
             <div class="field">
               <label>Sheets remaining</label>
-              <input id="sheetsInput" type="number" min="0" step="1" />
+              <div class="sheets-input-row">
+                <input id="sheetsInput" type="number" min="0" step="1" />
+                <div class="sheet-quick-buttons">
+                  <button type="button" data-quick-sheets="200">+200</button>
+                  <button type="button" data-quick-sheets="500">+500</button>
+                  <button type="button" data-quick-sheets="1000">+1000</button>
+                </div>
+              </div>
+              <small>Use these quick add buttons to restock counts for support tracking.</small>
             </div>
           </div>
           <small class="helper">Update sheets remaining whenever you reload the Mitsubishi CP-M1 cassette.</small>

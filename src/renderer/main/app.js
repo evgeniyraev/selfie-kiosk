@@ -315,13 +315,14 @@
 
     const previewWindow = getPreviewWindow();
     const leadInMs = Math.max(0, options.leadInMs || 0);
-    const resumeSeconds =
-      leadInMs > 0 ? Math.max(0, previewWindow.startMs - leadInMs) / 1000 : 0;
+    const resumeMs =
+      leadInMs > 0 ? Math.max(0, previewWindow.startMs - leadInMs) : 0;
+    const resumeSeconds = resumeMs / 1000;
     seekMainVideo(resumeSeconds);
     elements.mainVideo.play().catch(() => {});
 
-    const startWindowMs = previewWindow.startMs;
-    const endWindowMs = previewWindow.endMs;
+    const startDelayMs = Math.max(0, previewWindow.startMs - resumeMs);
+    const endDelayMs = Math.max(0, previewWindow.endMs - resumeMs);
 
     state.previewShowTimer = setTimeout(() => {
       state.previewShowTimer = null;
@@ -330,12 +331,12 @@
       }
       setFlow("capturing");
       setPreviewVisibility(true);
-    }, startWindowMs);
+    }, startDelayMs);
 
     state.previewHideTimer = setTimeout(() => {
       state.previewHideTimer = null;
       capturePhoto();
-    }, endWindowMs);
+    }, endDelayMs);
   };
 
   const resetFlow = () => {
@@ -357,19 +358,15 @@
   };
 
   const clearTimers = () => {
-    [
-      state.previewShowTimer,
-      state.previewHideTimer,
-      state.autoResetTimer,
-    ].forEach((timer) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    });
-
-    state.previewShowTimer = null;
-    state.previewHideTimer = null;
-    state.autoResetTimer = null;
+    if (state.previewShowTimer) {
+      clearTimeout(state.previewShowTimer);
+      state.previewShowTimer = null;
+    }
+    if (state.previewHideTimer) {
+      clearTimeout(state.previewHideTimer);
+      state.previewHideTimer = null;
+    }
+    clearAutoResetTimer();
   };
 
   const ensureWebcamStream = async () => {
@@ -517,6 +514,27 @@
     return nextOverlay || state.config.santaOverlays[0];
   };
 
+  const getAutoResetDuration = () =>
+    Math.max(5000, state.config?.resultScreen?.autoResetMs ?? 20000);
+
+  const clearAutoResetTimer = () => {
+    if (state.autoResetTimer) {
+      clearTimeout(state.autoResetTimer);
+      state.autoResetTimer = null;
+    }
+  };
+
+  const scheduleAutoResetTimer = () => {
+    clearAutoResetTimer();
+    state.autoResetTimer = setTimeout(() => resetFlow(), getAutoResetDuration());
+  };
+
+  const restartAutoResetTimer = () => {
+    if (state.flow === "result") {
+      scheduleAutoResetTimer();
+    }
+  };
+
   const showResult = async () => {
     if (!state.lastPhotoDataUrl) {
       return;
@@ -527,11 +545,7 @@
     closeQRDrawer();
     setFlow("result");
     updatePrintButtonState();
-    const autoResetMs = Math.max(
-      5000,
-      state.config?.resultScreen?.autoResetMs ?? 20000,
-    );
-    state.autoResetTimer = setTimeout(() => resetFlow(), autoResetMs);
+    scheduleAutoResetTimer();
   };
 
   const ensureShareLink = () => {
@@ -827,6 +841,7 @@
     if (!state.lastPhotoDataUrl) {
       return;
     }
+    restartAutoResetTimer();
     if (state.qrVisible) {
       closeQRDrawer();
       return;
@@ -970,8 +985,9 @@
   const updateSheetDisplay = () => {
     const sheets = state.config?.printer?.sheetsRemaining;
     if (elements.sheetsLeft) {
-      elements.sheetsLeft.textContent =
-        typeof sheets === "number" ? sheets : "--";
+      const showCount =
+        typeof sheets === "number" && sheets > 0 && sheets <= 50;
+      elements.sheetsLeft.textContent = showCount ? sheets : "--";
     }
   };
 
@@ -992,6 +1008,7 @@
     if (!state.lastPhotoDataUrl || state.isPrinting) {
       return;
     }
+    restartAutoResetTimer();
     const hasPrinter = Boolean(state.config?.printer?.deviceName);
     if (!hasPrinter) {
       setPrintStatus("Configure the printer in Settings first.");
