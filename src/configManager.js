@@ -15,6 +15,13 @@ const DEFAULT_WORKING_HOURS = {
   start: "09:00",
   end: "21:00",
 };
+const DEFAULT_CAMERA_CROP = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+const MIN_CAMERA_CROP_EDGE = 0.05;
 
 const DEFAULT_PRINTER = {
   deviceName: "",
@@ -28,6 +35,33 @@ const FALLBACK_PRINTER_ASPECT =
 
 const clampNormalized = (value, min = 0, max = 1) =>
   Math.min(Math.max(value, min), max);
+
+const normalizeCameraCrop = (value = {}) => {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_CAMERA_CROP };
+  }
+  let x = clampNormalized(Number(value.x) || 0);
+  let y = clampNormalized(Number(value.y) || 0);
+  let width = clampNormalized(Number(value.width) || 1, MIN_CAMERA_CROP_EDGE, 1);
+  let height = clampNormalized(Number(value.height) || 1, MIN_CAMERA_CROP_EDGE, 1);
+
+  if (x + width > 1) {
+    width = Math.max(MIN_CAMERA_CROP_EDGE, 1 - x);
+  }
+  if (y + height > 1) {
+    height = Math.max(MIN_CAMERA_CROP_EDGE, 1 - y);
+  }
+  if (width <= 0 || Number.isNaN(width)) {
+    width = DEFAULT_CAMERA_CROP.width;
+  }
+  if (height <= 0 || Number.isNaN(height)) {
+    height = DEFAULT_CAMERA_CROP.height;
+  }
+  x = clampNormalized(x, 0, 1 - width);
+  y = clampNormalized(y, 0, 1 - height);
+
+  return { x, y, width, height };
+};
 
 const getPrinterAspectRatioValue = (printer = DEFAULT_PRINTER) => {
   const width = Number(printer?.paperWidthMm);
@@ -93,6 +127,9 @@ const defaultConfig = {
   workingHours: {
     ...DEFAULT_WORKING_HOURS,
   },
+  cameraCrop: {
+    ...DEFAULT_CAMERA_CROP,
+  },
   mirrorCamera: true,
   santaOverlays: [],
 };
@@ -122,6 +159,10 @@ const readConfigFromDisk = () => {
 
 const mergeWithDefaults = (partialConfig = {}) => {
   const previewQuad = resolvePreviewQuad(partialConfig);
+  const printerConfig = {
+    ...defaultConfig.printer,
+    ...(partialConfig.printer || {}),
+  };
 
   const merged = {
     ...defaultConfig,
@@ -135,16 +176,16 @@ const mergeWithDefaults = (partialConfig = {}) => {
       ...defaultConfig.resultScreen,
       ...(partialConfig.resultScreen || {}),
     },
-    printer: {
-      ...defaultConfig.printer,
-      ...(partialConfig.printer || {}),
-    },
+    printer: printerConfig,
     capture: {
       ...defaultConfig.capture,
       ...(partialConfig.capture || {}),
     },
     workingHours: normalizeWorkingHours(partialConfig.workingHours),
   };
+  merged.cameraCrop = normalizeCameraCrop(
+    partialConfig.cameraCrop || defaultConfig.cameraCrop,
+  );
 
   if (!merged.previewVisibility.startMs && partialConfig.capture?.previewAtMs) {
     merged.previewVisibility.startMs = partialConfig.capture.previewAtMs;

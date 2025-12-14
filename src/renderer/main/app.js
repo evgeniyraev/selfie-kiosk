@@ -6,6 +6,8 @@
   const SHARE_DEFAULT_STATUS = 'Tap "Show QR" to generate a download link.';
   const IDLE_LOCK_HOLD_MS = 5000;
   const NOTICE_AUTO_HIDE_MS = 5000;
+  const DEFAULT_CAMERA_CROP = { x: 0, y: 0, width: 1, height: 1 };
+  const MIN_CAMERA_CROP_EDGE = 0.05;
 
   const state = {
     config: null,
@@ -259,6 +261,7 @@
     applyPreviewTransform();
     updatePreviewOverlay();
     updateMirrorPreviewState();
+    applyCameraCropPreviewStyles();
     updateSheetDisplay();
     updatePrintButtonState();
     updatePaperAspectRatio();
@@ -737,22 +740,43 @@
     ctx.fillRect(0, 0, targetWidth, targetHeight);
 
     const shouldMirror = mirrorCameraEnabled();
+    const captureCrop = getCaptureCropRect(shouldMirror);
+    const { width: rawVideoWidth, height: rawVideoHeight } =
+      getImageDimensions(video);
+    const videoWidth = Math.max(1, rawVideoWidth);
+    const videoHeight = Math.max(1, rawVideoHeight);
+    const sourceWidth = Math.max(1, captureCrop.width * videoWidth);
+    const sourceHeight = Math.max(1, captureCrop.height * videoHeight);
+    const maxSourceX = Math.max(0, videoWidth - sourceWidth);
+    const maxSourceY = Math.max(0, videoHeight - sourceHeight);
+    const sourceX = clampNumber(
+      captureCrop.x * videoWidth,
+      0,
+      maxSourceX,
+    );
+    const sourceY = clampNumber(
+      captureCrop.y * videoHeight,
+      0,
+      maxSourceY,
+    );
+    const scale = Math.max(
+      targetWidth / sourceWidth,
+      targetHeight / sourceHeight,
+    );
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    const offsetX = (targetWidth - drawWidth) / 2;
+    const offsetY = (targetHeight - drawHeight) / 2;
     if (shouldMirror) {
       ctx.save();
       ctx.translate(targetWidth, 0);
       ctx.scale(-1, 1);
-    }
-    const scale = Math.min(
-      targetWidth / (video.videoWidth || targetWidth),
-      targetHeight / (video.videoHeight || targetHeight),
-    );
-    const drawWidth = (video.videoWidth || targetWidth) * scale;
-    const drawHeight = (video.videoHeight || targetHeight) * scale;
-    const offsetX = (targetWidth - drawWidth) / 2;
-    const offsetY = (targetHeight - drawHeight) / 2;
-    if (shouldMirror) {
       ctx.drawImage(
         video,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
         targetWidth - offsetX - drawWidth,
         offsetY,
         drawWidth,
@@ -760,7 +784,17 @@
       );
       ctx.restore();
     } else {
-      ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
+      ctx.drawImage(
+        video,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
+        offsetX,
+        offsetY,
+        drawWidth,
+        drawHeight,
+      );
     }
 
     const overlayPath = state.pendingOverlayPath || pickOverlay();
@@ -1033,11 +1067,83 @@
     return Math.min(Math.max(number, 0), 1);
   };
 
+  const clampNumber = (value, min, max) => {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.min(Math.max(value, min), max);
+  };
+
   const mapQuadToStage = (quad = [], stageWidth, stageHeight) =>
     quad.map((point) => ({
       x: clampUnit(point?.x) * stageWidth,
       y: clampUnit(point?.y) * stageHeight,
     }));
+
+  const getCameraCropRect = () =>
+    normalizeCameraCropRect(state.config?.cameraCrop || DEFAULT_CAMERA_CROP);
+
+  const normalizeCameraCropRect = (crop = {}) => {
+    let x = clampNumber(Number(crop?.x) || 0, 0, 1);
+    let y = clampNumber(Number(crop?.y) || 0, 0, 1);
+    let width = clampNumber(
+      Number(crop?.width) || 1,
+      MIN_CAMERA_CROP_EDGE,
+      1,
+    );
+    let height = clampNumber(
+      Number(crop?.height) || 1,
+      MIN_CAMERA_CROP_EDGE,
+      1,
+    );
+    if (x + width > 1) {
+      x = Math.max(0, 1 - width);
+    }
+    if (y + height > 1) {
+      y = Math.max(0, 1 - height);
+    }
+    x = clampNumber(x, 0, 1 - width);
+    y = clampNumber(y, 0, 1 - height);
+    return { x, y, width, height };
+  };
+
+  const getCaptureCropRect = (shouldMirror) => {
+    const rect = getCameraCropRect();
+    if (!shouldMirror) {
+      return rect;
+    }
+    const mirroredX = clampNumber(1 - rect.x - rect.width, 0, 1 - rect.width);
+    return {
+      x: mirroredX,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+  };
+
+  const applyCameraCropPreviewStyles = () => {
+    if (!elements.webcamPreview) {
+      return;
+    }
+    const rect = getCameraCropRect();
+    applyVideoCropStyles(elements.webcamPreview, rect);
+  };
+
+  const applyVideoCropStyles = (videoEl, rect) => {
+    if (!videoEl || !rect) {
+      return;
+    }
+    const width = Math.max(rect.width, MIN_CAMERA_CROP_EDGE);
+    const height = Math.max(rect.height, MIN_CAMERA_CROP_EDGE);
+    const widthPercent = (1 / width) * 100;
+    const heightPercent = (1 / height) * 100;
+    const leftPercent = (-rect.x / width) * 100;
+    const topPercent = (-rect.y / height) * 100;
+    videoEl.style.width = `${widthPercent}%`;
+    videoEl.style.height = `${heightPercent}%`;
+    videoEl.style.left = `${leftPercent}%`;
+    videoEl.style.top = `${topPercent}%`;
+  };
 
   const getQuadBoundsPx = (points = []) => {
     if (!Array.isArray(points) || points.length !== 4) {
@@ -1143,6 +1249,7 @@
     }
     const mirrored = mirrorCameraEnabled();
     elements.webcamPreview.classList.toggle("mirrored", mirrored);
+    applyCameraCropPreviewStyles();
   };
 
   const mirrorCameraEnabled = () => state.config?.mirrorCamera !== false;

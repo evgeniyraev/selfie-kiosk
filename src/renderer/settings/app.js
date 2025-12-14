@@ -15,7 +15,15 @@
     dragMode: null,
     dragStartPoint: null,
     initialQuad: null,
-    rectangleAnchor: null
+    rectangleAnchor: null,
+    isDraggingCameraCrop: false,
+    cameraCropHandleIndex: null,
+    cameraCropPointerId: null,
+    cameraCropDragMode: null,
+    cameraCropDragStartPoint: null,
+    cameraCropInitialRect: null,
+    cameraCropActiveHandle: null,
+    cameraCropAnchor: null
   };
 
   const DEFAULT_STAGE_WIDTH = 1080;
@@ -26,6 +34,8 @@
   const DEFAULT_RECT_TOP_PX = 157;
   const DEFAULT_PRINTER_ASPECT = 150 / 100;
   const MIN_RECT_EDGE = 0.02;
+  const MIN_CAMERA_CROP_EDGE = 0.05;
+  const CAMERA_STAGE_RATIO = 16 / 9;
 
   const qs = (selector) => document.querySelector(selector);
   const elements = {
@@ -74,7 +84,11 @@
     chooseBackupBtn: qs('#chooseBackupBtn'),
     resetBackupBtn: qs('#resetBackupBtn'),
     sheetQuickButtons: Array.from(document.querySelectorAll('[data-quick-sheets]')),
-    previewShapeRadios: Array.from(document.querySelectorAll("input[name='previewShape']"))
+    previewShapeRadios: Array.from(document.querySelectorAll("input[name='previewShape']")),
+    cameraCropStage: qs('#cameraCropStage'),
+    cameraCropVideo: qs('#cameraCropVideo'),
+    cameraCropBox: qs('#cameraCropBox'),
+    cameraCropHandles: Array.from(document.querySelectorAll('.camera-crop-handle'))
   };
   const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
 
@@ -260,6 +274,8 @@
         state.config.printer = printer;
         renderPrinterConfig();
         if (aspectChanged) {
+          ensureCameraCropConfig();
+          renderCameraCrop();
           renderQuad();
         }
       });
@@ -351,6 +367,30 @@
       });
     }
 
+    if (elements.cameraCropHandles?.length) {
+      elements.cameraCropHandles.forEach((handle) => {
+        handle.addEventListener('pointerdown', (event) => {
+          const index = Number(handle.dataset.index);
+          if (Number.isNaN(index)) {
+            return;
+          }
+          startCameraCropHandleDrag(event, index, handle);
+        });
+      });
+    }
+
+    if (elements.cameraCropBox) {
+      elements.cameraCropBox.addEventListener('pointerdown', (event) => {
+        if (event.target.closest('.camera-crop-handle')) {
+          return;
+        }
+        if (event.button && event.button !== 0) {
+          return;
+        }
+        startCameraCropTranslation(event);
+      });
+    }
+
     if (elements.previewShapeRadios?.length) {
       elements.previewShapeRadios.forEach((input) => {
         input.addEventListener('change', () => {
@@ -384,9 +424,12 @@
       if (state.isDraggingRegion) {
         dragHandle(event);
       }
+      if (state.isDraggingCameraCrop) {
+        dragCameraCrop(event);
+      }
     });
 
-    window.addEventListener('pointerup', () => {
+    const handlePointerEnd = () => {
       if (state.activeHandleEl && state.activePointerId !== null) {
         state.activeHandleEl.releasePointerCapture?.(state.activePointerId);
       }
@@ -399,7 +442,11 @@
       state.dragStartPoint = null;
       state.rectangleAnchor = null;
       elements.stageWrapper?.classList.remove('dragging');
-    });
+      endCameraCropDrag();
+    };
+
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
 
     elements.startCameraOverlayBtn.addEventListener('click', () => {
       startCameraOverlay();
@@ -453,10 +500,12 @@
     ensureGlobalPreviewQuad();
     ensurePreviewVideoSelection();
     ensureActiveVideoSettings();
+    ensureCameraCropConfig();
     renderVideoList('idle');
     renderVideoList('main');
     renderOverlayList();
     renderQuad();
+    renderCameraCrop();
     renderPreviewVisibility();
     renderResultTimer();
     renderPrinterConfig();
@@ -656,6 +705,74 @@
     }
   };
 
+  const ensureCameraCropConfig = () => {
+    if (!state.config) {
+      return;
+    }
+    state.config.cameraCrop = normalizeCameraCropRect(state.config.cameraCrop);
+  };
+
+  const getCameraCropAspectNormalized = () =>
+    Math.max(getRectangleAspectRatio() / CAMERA_STAGE_RATIO, 0.01);
+
+  const normalizeCameraCropRect = (rect = {}) => {
+    const normalizedAspect = getCameraCropAspectNormalized();
+    let width = clamp(
+      Number(rect?.width) || 1,
+      MIN_CAMERA_CROP_EDGE,
+      1
+    );
+    let height = clamp(
+      Number(rect?.height) || 1,
+      MIN_CAMERA_CROP_EDGE,
+      1
+    );
+    if (height > 0) {
+      const ratio = width / height;
+      if (ratio > normalizedAspect) {
+        width = height * normalizedAspect;
+      } else {
+        height = width / normalizedAspect;
+      }
+    }
+    width = clamp(width, MIN_CAMERA_CROP_EDGE, 1);
+    height = clamp(height, MIN_CAMERA_CROP_EDGE, 1);
+    let x = clamp(Number(rect?.x) || 0, 0, 1);
+    let y = clamp(Number(rect?.y) || 0, 0, 1);
+    if (x + width > 1) {
+      x = Math.max(0, 1 - width);
+    }
+    if (y + height > 1) {
+      y = Math.max(0, 1 - height);
+    }
+    x = clamp(x, 0, 1 - width);
+    y = clamp(y, 0, 1 - height);
+    return { x, y, width, height };
+  };
+
+  const getCameraCropRect = () => {
+    ensureCameraCropConfig();
+    return { ...(state.config?.cameraCrop || { x: 0, y: 0, width: 1, height: 1 }) };
+  };
+
+  const getCameraCropAnchorPoint = (rect, handleIndex) => {
+    if (!rect) {
+      return { x: 0.5, y: 0.5 };
+    }
+    switch (handleIndex) {
+      case 0:
+        return { x: rect.x + rect.width, y: rect.y + rect.height };
+      case 1:
+        return { x: rect.x, y: rect.y + rect.height };
+      case 2:
+        return { x: rect.x, y: rect.y };
+      case 3:
+        return { x: rect.x + rect.width, y: rect.y };
+      default:
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }
+  };
+
   const normalizeTimeValue = (value, isStart) => {
     const fallback = isStart ? '09:00' : '21:00';
     if (typeof value !== 'string') {
@@ -738,6 +855,41 @@
     }
     elements.stageOverlayImage.src = fileToSrc(overlayPath);
     elements.stageOverlayImage.classList.remove('hidden');
+  };
+
+  const renderCameraCrop = () => {
+    ensureCameraCropConfig();
+    if (!elements.cameraCropBox) {
+      return;
+    }
+    const rect = getCameraCropRect();
+    elements.cameraCropBox.style.left = `${rect.x * 100}%`;
+    elements.cameraCropBox.style.top = `${rect.y * 100}%`;
+    elements.cameraCropBox.style.width = `${rect.width * 100}%`;
+    elements.cameraCropBox.style.height = `${rect.height * 100}%`;
+    updateCameraCropVideoState();
+  };
+
+  const applyCameraCropToVideos = (rect = null) => {
+    const targetRect = rect || getCameraCropRect();
+    applyVideoCropStyles(elements.cameraCropVideo, targetRect);
+    applyVideoCropStyles(elements.cameraOverlayVideo, targetRect);
+  };
+
+  const applyVideoCropStyles = (videoEl, rect) => {
+    if (!videoEl || !rect) {
+      return;
+    }
+    const width = Math.max(rect.width, MIN_CAMERA_CROP_EDGE);
+    const height = Math.max(rect.height, MIN_CAMERA_CROP_EDGE);
+    const widthPercent = (1 / width) * 100;
+    const heightPercent = (1 / height) * 100;
+    const leftPercent = (-rect.x / width) * 100;
+    const topPercent = (-rect.y / height) * 100;
+    videoEl.style.width = `${widthPercent}%`;
+    videoEl.style.height = `${heightPercent}%`;
+    videoEl.style.left = `${leftPercent}%`;
+    videoEl.style.top = `${topPercent}%`;
   };
 
   const renderQuad = () => {
@@ -826,6 +978,194 @@
       entry.previewQuad[state.dragHandleIndex] = { x, y };
     }
     renderQuad();
+  };
+
+  const startCameraCropHandleDrag = (event, index, handleEl) => {
+    if (!elements.cameraCropStage || index < 0) {
+      return;
+    }
+    ensureCameraCropConfig();
+    event.preventDefault();
+    state.isDraggingCameraCrop = true;
+    state.cameraCropDragMode = 'handle';
+    state.cameraCropHandleIndex = index;
+    state.cameraCropPointerId = event.pointerId;
+    state.cameraCropActiveHandle = handleEl || null;
+    state.cameraCropInitialRect = getCameraCropRect();
+    state.cameraCropAnchor = getCameraCropAnchorPoint(
+      state.cameraCropInitialRect,
+      index
+    );
+    handleEl?.setPointerCapture?.(event.pointerId);
+  };
+
+  const startCameraCropTranslation = (event) => {
+    if (!elements.cameraCropStage) {
+      return;
+    }
+    if (event.button && event.button !== 0) {
+      return;
+    }
+    ensureCameraCropConfig();
+    event.preventDefault();
+    state.isDraggingCameraCrop = true;
+    state.cameraCropDragMode = 'translate';
+    state.cameraCropPointerId = event.pointerId;
+    state.cameraCropActiveHandle = elements.cameraCropStage;
+    state.cameraCropDragStartPoint = { x: event.clientX, y: event.clientY };
+    state.cameraCropInitialRect = getCameraCropRect();
+    state.cameraCropAnchor = null;
+    elements.cameraCropStage.setPointerCapture?.(event.pointerId);
+  };
+
+  const dragCameraCrop = (event) => {
+    event.preventDefault();
+    if (!state.isDraggingCameraCrop || !elements.cameraCropStage) {
+      return;
+    }
+    const rect = elements.cameraCropStage.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
+    if (state.cameraCropDragMode === 'handle') {
+      const point = {
+        x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+        y: clamp((event.clientY - rect.top) / rect.height, 0, 1)
+      };
+      handleCameraCropHandleMove(state.cameraCropHandleIndex, point);
+    } else if (state.cameraCropDragMode === 'translate') {
+      handleCameraCropTranslation(event, rect);
+    }
+    renderCameraCrop();
+  };
+
+  const handleCameraCropHandleMove = (handleIndex, point) => {
+    ensureCameraCropConfig();
+    if (handleIndex === null || handleIndex === undefined) {
+      return;
+    }
+    const anchor =
+      state.cameraCropAnchor ||
+      getCameraCropAnchorPoint(getCameraCropRect(), handleIndex);
+    if (!anchor) {
+      return;
+    }
+    const normalizedAspect = getCameraCropAspectNormalized();
+    const dirX = handleIndex === 0 || handleIndex === 3 ? -1 : 1;
+    const dirY = handleIndex === 0 || handleIndex === 1 ? -1 : 1;
+    let pointerX = clamp(point.x, 0, 1);
+    let pointerY = clamp(point.y, 0, 1);
+
+    if ((pointerX - anchor.x) * dirX <= 0) {
+      pointerX = clamp(anchor.x + dirX * MIN_CAMERA_CROP_EDGE, 0, 1);
+    }
+    if ((pointerY - anchor.y) * dirY <= 0) {
+      pointerY = clamp(anchor.y + dirY * MIN_CAMERA_CROP_EDGE, 0, 1);
+    }
+
+    let width = Math.max(Math.abs(pointerX - anchor.x), MIN_CAMERA_CROP_EDGE);
+    let height = Math.max(Math.abs(pointerY - anchor.y), MIN_CAMERA_CROP_EDGE);
+    const currentRatio = height > 0 ? width / height : normalizedAspect;
+    if (currentRatio > normalizedAspect) {
+      width = height * normalizedAspect;
+    } else {
+      height = width / normalizedAspect;
+    }
+
+    let minX;
+    let maxX;
+    if (dirX < 0) {
+      maxX = clamp(anchor.x, 0, 1);
+      minX = clamp(maxX - width, 0, maxX - MIN_CAMERA_CROP_EDGE);
+      width = maxX - minX;
+    } else {
+      minX = clamp(anchor.x, 0, 1);
+      maxX = clamp(minX + width, minX + MIN_CAMERA_CROP_EDGE, 1);
+      width = maxX - minX;
+    }
+
+    let minY;
+    let maxY;
+    if (dirY < 0) {
+      maxY = clamp(anchor.y, 0, 1);
+      minY = clamp(maxY - height, 0, maxY - MIN_CAMERA_CROP_EDGE);
+      height = maxY - minY;
+    } else {
+      minY = clamp(anchor.y, 0, 1);
+      maxY = clamp(minY + height, minY + MIN_CAMERA_CROP_EDGE, 1);
+      height = maxY - minY;
+    }
+
+    const adjustedAspect = height > 0 ? width / height : normalizedAspect;
+    if (Math.abs(adjustedAspect - normalizedAspect) > 0.001) {
+      if (adjustedAspect > normalizedAspect) {
+        width = height * normalizedAspect;
+        if (dirX < 0) {
+          minX = Math.max(0, maxX - width);
+        } else {
+          maxX = Math.min(1, minX + width);
+        }
+      } else {
+        height = width / normalizedAspect;
+        if (dirY < 0) {
+          minY = Math.max(0, maxY - height);
+        } else {
+          maxY = Math.min(1, minY + height);
+        }
+      }
+    }
+
+    state.config.cameraCrop = normalizeCameraCropRect({
+      x: minX,
+      y: minY,
+      width: Math.max(MIN_CAMERA_CROP_EDGE, maxX - minX),
+      height: Math.max(MIN_CAMERA_CROP_EDGE, maxY - minY)
+    });
+  };
+
+  const handleCameraCropTranslation = (event, stageRect) => {
+    if (!state.cameraCropInitialRect || !state.cameraCropDragStartPoint) {
+      return;
+    }
+    const deltaX =
+      (event.clientX - state.cameraCropDragStartPoint.x) / stageRect.width;
+    const deltaY =
+      (event.clientY - state.cameraCropDragStartPoint.y) / stageRect.height;
+    const nextX = clamp(
+      state.cameraCropInitialRect.x + deltaX,
+      0,
+      1 - state.cameraCropInitialRect.width
+    );
+    const nextY = clamp(
+      state.cameraCropInitialRect.y + deltaY,
+      0,
+      1 - state.cameraCropInitialRect.height
+    );
+    state.config.cameraCrop = normalizeCameraCropRect({
+      x: nextX,
+      y: nextY,
+      width: state.cameraCropInitialRect.width,
+      height: state.cameraCropInitialRect.height
+    });
+  };
+
+  const endCameraCropDrag = () => {
+    if (!state.isDraggingCameraCrop) {
+      return;
+    }
+    if (state.cameraCropActiveHandle && state.cameraCropPointerId !== null) {
+      state.cameraCropActiveHandle.releasePointerCapture?.(
+        state.cameraCropPointerId
+      );
+    }
+    state.isDraggingCameraCrop = false;
+    state.cameraCropHandleIndex = null;
+    state.cameraCropPointerId = null;
+    state.cameraCropDragMode = null;
+    state.cameraCropDragStartPoint = null;
+    state.cameraCropInitialRect = null;
+    state.cameraCropActiveHandle = null;
+    state.cameraCropAnchor = null;
   };
 
   const startQuadTranslation = (event) => {
@@ -1422,7 +1762,7 @@
         audio: false
       });
       state.cameraStream = stream;
-      elements.cameraOverlayVideo.srcObject = stream;
+      updateCameraCropVideoState();
       elements.cameraOverlay.classList.remove('hidden');
       const rect = elements.stageWrapper.getBoundingClientRect();
       updateCameraOverlayTransform(rect.width, rect.height);
@@ -1441,9 +1781,7 @@
       state.cameraStream.getTracks().forEach((track) => track.stop());
       state.cameraStream = null;
     }
-    if (elements.cameraOverlayVideo) {
-      elements.cameraOverlayVideo.srcObject = null;
-    }
+    updateCameraCropVideoState();
     if (elements.cameraOverlay) {
       elements.cameraOverlay.classList.add('hidden');
       elements.cameraOverlay.classList.remove('rectangular');
@@ -1457,6 +1795,24 @@
     const active = Boolean(state.cameraStream);
     elements.startCameraOverlayBtn.disabled = active;
     elements.stopCameraOverlayBtn.disabled = !active;
+  };
+
+  const updateCameraCropVideoState = () => {
+    const mirrored = isCameraMirrored();
+    const stream = state.cameraStream || null;
+    if (elements.cameraCropVideo) {
+      if (elements.cameraCropVideo.srcObject !== stream) {
+        elements.cameraCropVideo.srcObject = stream;
+      }
+      elements.cameraCropVideo.classList.toggle('mirrored', mirrored);
+    }
+    if (elements.cameraOverlayVideo) {
+      if (elements.cameraOverlayVideo.srcObject !== stream) {
+        elements.cameraOverlayVideo.srcObject = stream;
+      }
+      elements.cameraOverlayVideo.classList.toggle('mirrored', mirrored);
+    }
+    applyCameraCropToVideos();
   };
 
   const updateCameraOverlayStatus = (message) => {
@@ -1635,6 +1991,9 @@
     const mirrored = isCameraMirrored();
     if (elements.cameraOverlayVideo) {
       elements.cameraOverlayVideo.classList.toggle('mirrored', mirrored);
+    }
+    if (elements.cameraCropVideo) {
+      elements.cameraCropVideo.classList.toggle('mirrored', mirrored);
     }
   };
 

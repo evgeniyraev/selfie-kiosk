@@ -196,6 +196,23 @@
             </div>
           </div>
         </section>
+
+        <section class="card">
+          <h2>Camera crop</h2>
+          <p class="helper">Pick the portion of the camera feed that should be used for every capture.</p>
+          <div id="cameraCropStage" class="camera-crop-stage">
+            <video id="cameraCropVideo" autoplay muted playsinline></video>
+            <div class="camera-crop-overlay">
+              <div id="cameraCropBox" class="camera-crop-box" role="presentation">
+                <button class="camera-crop-handle" data-index="0" type="button" aria-label="Top left"></button>
+                <button class="camera-crop-handle" data-index="1" type="button" aria-label="Top right"></button>
+                <button class="camera-crop-handle" data-index="2" type="button" aria-label="Bottom right"></button>
+                <button class="camera-crop-handle" data-index="3" type="button" aria-label="Bottom left"></button>
+              </div>
+            </div>
+          </div>
+          <small class="helper">Drag the rectangle to move it. Use the corner handles to resize.</small>
+        </section>
       </main>
       <div id="saveToast" class="toast hidden">Settings saved</div>
     </div>

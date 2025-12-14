@@ -82,13 +82,17 @@ body[data-flow="result"] .video-stage {
     z-index: 2;
     transform-origin: 0 0;
     pointer-events: none;
+    overflow: hidden;
 }
 
 .preview-region video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
     background: transparent;
+    transform-origin: center center;
 }
 
 .preview-region.rectangular video {
