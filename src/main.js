@@ -347,8 +347,8 @@ const printImage = async (imageDataUrl, printer) => {
           marginType: "none",
         },
         pageSize: {
-          width: Math.round(widthMm * 1000),
-          height: Math.round(heightMm * 1000),
+          width: Math.round(heightMm * 1000),
+          height: Math.round(widthMm * 1000),
         },
       },
       (success, failureReason) => {
