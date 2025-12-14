@@ -17,7 +17,7 @@ process.env.KIOSK_RUNTIME = isProductionBuild ? "production" : "development";
 let mainWindow;
 let settingsWindow;
 
-const MAIN_ASPECT_RATIO = 10 / 16;
+const MAIN_ASPECT_RATIO = 9 / 16;
 const DEFAULT_HEIGHT = 1920;
 const DEFAULT_WIDTH = Math.round(DEFAULT_HEIGHT * MAIN_ASPECT_RATIO);
 
@@ -57,12 +57,15 @@ const saveBackupPhotoToDisk = async (dataUrl, reason = "backup") => {
   if (!matches) {
     throw new Error("Unsupported image format.");
   }
-  const extension = matches[1].toLowerCase() === "jpeg" ? "jpg" : matches[1].toLowerCase();
+  const extension =
+    matches[1].toLowerCase() === "jpeg" ? "jpg" : matches[1].toLowerCase();
   const buffer = Buffer.from(matches[2], "base64");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const safeReason =
-    (reason || "backup").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ||
-    "backup";
+    (reason || "backup")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "backup";
   const filename = `${timestamp}-${safeReason}.${extension}`;
   const targetPath = path.join(resolveBackupDir(), filename);
   await fs.promises.writeFile(targetPath, buffer);
@@ -224,10 +227,16 @@ ipcMain.handle("print:photo", async (_event, imageDataUrl) => {
       },
     });
     if (mainWindow) {
-      mainWindow.webContents.send("printer:sheets", updated.printer?.sheetsRemaining ?? 0);
+      mainWindow.webContents.send(
+        "printer:sheets",
+        updated.printer?.sheetsRemaining ?? 0,
+      );
     }
     if (settingsWindow) {
-      settingsWindow.webContents.send("printer:sheets", updated.printer?.sheetsRemaining ?? 0);
+      settingsWindow.webContents.send(
+        "printer:sheets",
+        updated.printer?.sheetsRemaining ?? 0,
+      );
     }
   }
   return { success: true };

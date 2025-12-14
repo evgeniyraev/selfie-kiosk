@@ -69,6 +69,8 @@
     messageSettingsBtn: document.getElementById("messageSettingsBtn"),
     sheetsLeft: document.getElementById("sheetsLeft"),
     printStatus: document.getElementById("printStatus"),
+    debugPreviewLayer: null,
+    debugPreviewImage: null,
   };
 
   const setQRStatus = (message) => {
@@ -1083,18 +1085,20 @@
   const createPrintComposition = async () => {
     const { width, height } = getPrintCanvasSize();
     const canvas = document.createElement("canvas");
-    canvas.width = height;
-    canvas.height = width;
+    const canvasWidth = height;
+    const canvasHeight = width;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     const photo = await loadImage(state.lastPhotoDataUrl);
     ctx.save();
-    ctx.translate(width / 2, height / 2);
+    ctx.translate(canvasWidth / 2, canvasHeight / 2);
     ctx.rotate(Math.PI / 2);
-    ctx.translate(-width / 2, -height / 2);
-    drawCoverImage(ctx, photo, height, width);
+    ctx.translate(-canvasHeight / 2, -canvasWidth / 2);
+    drawCoverImage(ctx, photo, canvasHeight, canvasWidth);
     ctx.restore();
 
     if (!state.isProduction) {
@@ -1105,29 +1109,51 @@
   };
 
   const debugPrintComposition = (canvas) => {
-    if (state._debugPreviewWindow && !state._debugPreviewWindow.closed) {
-      state._debugPreviewWindow.close();
-      state._debugPreviewWindow = null;
-    }
-    const preview = window.open(
-      "",
-      "print-composition-preview",
-      "width=600,height=400",
-    );
-    if (!preview) {
-      console.warn("Unable to open print preview window.");
+    if (!ensureDebugPreviewLayer()) {
       return;
     }
-    state._debugPreviewWindow = preview;
-    preview.document.title = "Print Composition Preview";
-    const img = preview.document.createElement("img");
-    img.src = canvas.toDataURL("image/png");
-    img.style.maxWidth = "100%";
-    img.style.display = "block";
-    img.style.margin = "0 auto";
-    preview.document.body.style.background = "#111";
-    preview.document.body.style.padding = "12px";
-    preview.document.body.appendChild(img);
+    if (elements.debugPreviewImage) {
+      elements.debugPreviewImage.src = canvas.toDataURL("image/png");
+    }
+    elements.debugPreviewLayer.classList.remove("hidden");
+  };
+
+  const ensureDebugPreviewLayer = () => {
+    if (elements.debugPreviewLayer && elements.debugPreviewImage) {
+      return true;
+    }
+    if (!state.isProduction) {
+      const layer = document.createElement("div");
+      layer.id = "debugPrintPreview";
+      layer.className = "debug-print-preview hidden";
+      layer.innerHTML = `
+        <div class="debug-print-card">
+          <div class="debug-print-header">
+            <strong>Print composition preview</strong>
+            <button type="button" class="debug-print-close" aria-label="Close preview">&times;</button>
+          </div>
+          <img alt="Print preview" />
+        </div>
+      `;
+      document.body.appendChild(layer);
+      const image = layer.querySelector("img");
+      const closeBtn = layer.querySelector(".debug-print-close");
+      if (!image || !closeBtn) {
+        return false;
+      }
+      closeBtn.addEventListener("click", () => {
+        layer.classList.add("hidden");
+      });
+      layer.addEventListener("click", (event) => {
+        if (event.target === layer) {
+          layer.classList.add("hidden");
+        }
+      });
+      elements.debugPreviewLayer = layer;
+      elements.debugPreviewImage = image;
+      return true;
+    }
+    return false;
   };
 
   const getPrinterDimensions = () => {
