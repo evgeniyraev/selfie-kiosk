@@ -4,6 +4,8 @@
   const SHARE_UPLOAD_ENDPOINT =
     "https://interactivebulgaria.bg/server/upload.php";
   const SHARE_DEFAULT_STATUS = 'Tap "Show QR" to generate a download link.';
+  const IDLE_LOCK_HOLD_MS = 5000;
+  const NOTICE_AUTO_HIDE_MS = 5000;
 
   const state = {
     config: null,
@@ -25,6 +27,13 @@
     shareUploadPromise: null,
     isProduction: Boolean(window.kioskAPI?.isProduction),
     lastOverlayPath: "",
+    idleHoldTimer: null,
+    idleHoldTriggered: false,
+    kioskLocked: false,
+    kioskUnlockTime: null,
+    kioskUnlockTimer: null,
+    noticeAutoHideTimer: null,
+    workingHoursTimer: null,
   };
 
   const areArraysEqual = (a = [], b = []) => {
@@ -71,6 +80,8 @@
     printStatus: document.getElementById("printStatus"),
     debugPreviewLayer: null,
     debugPreviewImage: null,
+    idleBtn: document.getElementById("idleBtn"),
+    noticeBanner: document.getElementById("noticeBanner"),
   };
 
   const setQRStatus = (message) => {
@@ -170,6 +181,10 @@
   const attachEventListeners = () => {
     elements.videoStage.addEventListener("pointerdown", () => {
       if (state.flow === "idle") {
+        if (!canStartExperience()) {
+          notifyOutsideWorkingHours();
+          return;
+        }
         startCaptureFlow();
       }
     });
@@ -207,6 +222,13 @@
     elements.messageSettingsBtn.addEventListener("click", (event) =>
       openSettings(event),
     );
+    if (elements.idleBtn) {
+      elements.idleBtn.addEventListener("pointerdown", handleIdlePointerDown);
+      elements.idleBtn.addEventListener("pointerup", handleIdlePointerUp);
+      ["pointerleave", "pointercancel"].forEach((type) => {
+        elements.idleBtn.addEventListener(type, cancelIdleHoldTimer);
+      });
+    }
     window.addEventListener("resize", applyPreviewTransform);
     window.addEventListener("keydown", (event) => {
       handleAdminShortcut(event);
@@ -240,6 +262,8 @@
     updateSheetDisplay();
     updatePrintButtonState();
     updatePaperAspectRatio();
+    refreshWorkingHoursState();
+    startWorkingHoursMonitor();
     setPrintStatus(
       state.config?.printer?.deviceName
         ? ""
@@ -279,6 +303,284 @@
     }
   };
 
+  const getWorkingHoursConfig = () =>
+    state.config?.workingHours || { enabled: false, start: "09:00", end: "21:00" };
+
+  const parseTimeToMinutes = (value) => {
+    if (typeof value !== "string") {
+      return 0;
+    }
+    const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+    if (!match) {
+      return 0;
+    }
+    let hours = Number(match[1]);
+    let minutes = Number(match[2]);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return 0;
+    }
+    hours = Math.min(Math.max(hours, 0), 23);
+    minutes = Math.min(Math.max(minutes, 0), 59);
+    return hours * 60 + minutes;
+  };
+
+  const isWorkingHoursEnabled = () => Boolean(getWorkingHoursConfig().enabled);
+
+  const isWithinWorkingHours = () => {
+    if (!isWorkingHoursEnabled()) {
+      return true;
+    }
+    const working = getWorkingHoursConfig();
+    const startMinutes = parseTimeToMinutes(working.start);
+    const endMinutes = parseTimeToMinutes(working.end);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    if (startMinutes === endMinutes) {
+      return false;
+    }
+    if (startMinutes < endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+    }
+    return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+  };
+
+  const getNextWorkingStartDate = () => {
+    if (!isWorkingHoursEnabled()) {
+      return null;
+    }
+    const working = getWorkingHoursConfig();
+    const startMinutes = parseTimeToMinutes(working.start);
+    const endMinutes = parseTimeToMinutes(working.end);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    let daysOffset = 0;
+    if (startMinutes < endMinutes) {
+      if (currentMinutes < startMinutes) {
+        daysOffset = 0;
+      } else if (currentMinutes >= endMinutes) {
+        daysOffset = 1;
+      } else {
+        daysOffset = 1;
+      }
+    } else {
+      if (currentMinutes >= startMinutes) {
+        daysOffset = 1;
+      } else if (currentMinutes < endMinutes) {
+        daysOffset = 0;
+      } else {
+        daysOffset = 0;
+      }
+    }
+    const target = new Date(now);
+    target.setHours(0, 0, 0, 0);
+    target.setDate(target.getDate() + daysOffset);
+    target.setMinutes(startMinutes);
+    return target;
+  };
+
+  const formatTimeLabel = (input) => {
+    if (!input) {
+      return "";
+    }
+    if (typeof input === "string") {
+      return input;
+    }
+    const hours = String(input.getHours()).padStart(2, "0");
+    const minutes = String(input.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const showNotice = (message, autoHideMs) => {
+    if (!elements.noticeBanner) {
+      return;
+    }
+    elements.noticeBanner.textContent = message;
+    elements.noticeBanner.classList.remove("hidden");
+    if (state.noticeAutoHideTimer) {
+      clearTimeout(state.noticeAutoHideTimer);
+      state.noticeAutoHideTimer = null;
+    }
+    if (autoHideMs) {
+      state.noticeAutoHideTimer = setTimeout(() => {
+        state.noticeAutoHideTimer = null;
+        if (!state.kioskLocked && isWithinWorkingHours()) {
+          hideNotice();
+        }
+      }, autoHideMs);
+    }
+  };
+
+  const hideNotice = (force = false) => {
+    if (state.kioskLocked && !force) {
+      return;
+    }
+    if (elements.noticeBanner) {
+      elements.noticeBanner.classList.add("hidden");
+    }
+    if (state.noticeAutoHideTimer) {
+      clearTimeout(state.noticeAutoHideTimer);
+      state.noticeAutoHideTimer = null;
+    }
+  };
+
+  const buildClosedMessage = () => {
+    const nextStart = getNextWorkingStartDate();
+    if (nextStart) {
+      return `We're closed. Opens at ${formatTimeLabel(nextStart)}.`;
+    }
+    const working = getWorkingHoursConfig();
+    return `We're closed. Opens at ${working.start || "the scheduled time"}.`;
+  };
+
+  const notifyOutsideWorkingHours = () => {
+    if (state.kioskLocked) {
+      const next =
+        state.kioskUnlockTime !== null
+          ? new Date(state.kioskUnlockTime)
+          : getNextWorkingStartDate();
+      const lockedMessage = next
+        ? `Idle mode locked. Opens at ${formatTimeLabel(next)}.`
+        : "Idle mode locked until next shift.";
+      showNotice(lockedMessage);
+      return;
+    }
+    if (isWorkingHoursEnabled()) {
+      const nextStart = getNextWorkingStartDate();
+      const delay = nextStart
+        ? Math.max(0, nextStart.getTime() - Date.now())
+        : null;
+      showNotice(buildClosedMessage(), delay);
+    }
+  };
+
+  const cancelKioskUnlockTimer = () => {
+    if (state.kioskUnlockTimer) {
+      clearTimeout(state.kioskUnlockTimer);
+      state.kioskUnlockTimer = null;
+    }
+  };
+
+  const scheduleKioskUnlock = () => {
+    cancelKioskUnlockTimer();
+    if (!state.kioskUnlockTime) {
+      return;
+    }
+    const delay = Math.max(0, state.kioskUnlockTime - Date.now());
+    state.kioskUnlockTimer = setTimeout(() => {
+      state.kioskUnlockTimer = null;
+      state.kioskLocked = false;
+      state.kioskUnlockTime = null;
+      if (isWithinWorkingHours()) {
+        hideNotice();
+      } else if (isWorkingHoursEnabled()) {
+        showNotice(buildClosedMessage(), NOTICE_AUTO_HIDE_MS);
+      }
+    }, delay);
+  };
+
+  const lockKioskForOffHours = () => {
+    if (state.kioskLocked) {
+      return;
+    }
+    if (!isWorkingHoursEnabled()) {
+      return;
+    }
+    state.kioskLocked = true;
+    const nextStart = getNextWorkingStartDate();
+    state.kioskUnlockTime = nextStart ? nextStart.getTime() : null;
+    scheduleKioskUnlock();
+    const message = nextStart
+      ? `Idle mode locked. Opens at ${formatTimeLabel(nextStart)}.`
+      : "Idle mode locked until next shift.";
+    showNotice(message);
+    resetFlow();
+  };
+
+  const unlockKiosk = () => {
+    state.kioskLocked = false;
+    state.kioskUnlockTime = null;
+    cancelKioskUnlockTimer();
+    hideNotice(true);
+  };
+
+  const refreshWorkingHoursState = () => {
+    if (!isWorkingHoursEnabled()) {
+      unlockKiosk();
+      return;
+    }
+    if (state.kioskLocked) {
+      scheduleKioskUnlock();
+      return;
+    }
+    if (!isWithinWorkingHours()) {
+      const nextStart = getNextWorkingStartDate();
+      const delay = nextStart
+        ? Math.max(0, nextStart.getTime() - Date.now())
+        : null;
+      showNotice(buildClosedMessage(), delay);
+    } else {
+      hideNotice();
+    }
+  };
+
+  const canStartExperience = () => !state.kioskLocked && isWithinWorkingHours();
+
+  const startIdleHoldTimer = () => {
+    if (state.idleHoldTimer) {
+      clearTimeout(state.idleHoldTimer);
+    }
+    state.idleHoldTriggered = false;
+    state.idleHoldTimer = setTimeout(() => {
+      state.idleHoldTimer = null;
+      if (!isWithinWorkingHours()) {
+        state.idleHoldTriggered = true;
+        lockKioskForOffHours();
+      } else {
+        state.idleHoldTriggered = false;
+      }
+    }, IDLE_LOCK_HOLD_MS);
+  };
+
+  const cancelIdleHoldTimer = () => {
+    if (state.idleHoldTimer) {
+      clearTimeout(state.idleHoldTimer);
+      state.idleHoldTimer = null;
+      state.idleHoldTriggered = false;
+    }
+  };
+
+  const handleIdlePointerDown = (event) => {
+    event.preventDefault();
+    if (state.kioskLocked) {
+      notifyOutsideWorkingHours();
+      return;
+    }
+    startIdleHoldTimer();
+  };
+
+  const handleIdlePointerUp = () => {
+    if (state.idleHoldTimer) {
+      clearTimeout(state.idleHoldTimer);
+      state.idleHoldTimer = null;
+      if (!state.idleHoldTriggered) {
+        resetFlow();
+      }
+    } else if (!state.idleHoldTriggered) {
+      resetFlow();
+    }
+    state.idleHoldTriggered = false;
+  };
+
+  const startWorkingHoursMonitor = () => {
+    if (state.workingHoursTimer) {
+      clearInterval(state.workingHoursTimer);
+    }
+    state.workingHoursTimer = setInterval(() => {
+      refreshWorkingHoursState();
+    }, 60000);
+  };
+
+
   const setFlow = (nextFlow) => {
     state.flow = nextFlow;
     elements.body.dataset.flow = nextFlow;
@@ -298,6 +600,10 @@
 
   const startCaptureFlow = (options = {}) => {
     const { forceVideoPath } = options;
+    if (!canStartExperience()) {
+      notifyOutsideWorkingHours();
+      return;
+    }
     if (!hasValidConfig(state.config)) {
       toggleMessage(true, "Configure sources before starting.");
       return;
@@ -356,6 +662,7 @@
     setFlow("idle");
     updatePrintButtonState();
     setPrintStatus("");
+    cancelIdleHoldTimer();
   };
 
   const clearTimers = () => {

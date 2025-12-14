@@ -8,6 +8,7 @@
     </head>
     <body data-flow="idle">
         <div id="app" class="app-shell">
+            <button id="idleBtn" class="idle-btn" type="button" aria-label="Return to idle"></button>
             <div class="video-stage" id="videoStage">
                 <button
                     id="cornerSettingsBtn"
@@ -89,11 +90,6 @@
                     alt="Holiday tagline"
                     class="result-tagline"
                 />
-                <button
-                    id="cornerSettingsBtn"
-                    class="corner-settings-btn result-settings"
-                    aria-label="Settings shortcut"
-                ></button>
             </div>
 
             <div id="messagePanel" class="message-panel hidden">
@@ -102,6 +98,7 @@
                     Open Settings
                 </button>
             </div>
+            <div id="noticeBanner" class="notice-banner hidden"></div>
         </div>
 
         <script src="./app.js"></script>

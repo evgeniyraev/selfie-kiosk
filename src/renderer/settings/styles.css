@@ -281,6 +281,26 @@ input[type='url'] {
   font-weight: 600;
 }
 
+.working-hours-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: center;
+}
+
+.working-hours-grid input[type='time'] {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(5, 8, 20, 0.6);
+  color: #fff;
+}
+
+.working-hours-grid input[type='time']:disabled {
+  opacity: 0.5;
+}
+
 .overlay-card {
   border: 1px dashed rgba(255, 255, 255, 0.2);
   padding: 12px;

@@ -88,6 +88,28 @@
           </div>
         </section>
 
+        <section class="card">
+          <h2>Working hours</h2>
+          <p class="helper">Limit when the experience is available. Outside working hours guests won't be able to start a capture.</p>
+          <div class="field checkbox-field">
+            <label>
+              <input type="checkbox" id="workingHoursEnabled" />
+              Enforce working hours
+            </label>
+          </div>
+          <div class="working-hours-grid">
+            <div class="field">
+              <label>Start time</label>
+              <input id="workingStartInput" type="time" />
+            </div>
+            <div class="field">
+              <label>End time</label>
+              <input id="workingEndInput" type="time" />
+            </div>
+          </div>
+          <small class="helper">If the hours cross midnight, set the start later in the day (e.g., 20:00) and the end after midnight (e.g., 02:00).</small>
+        </section>
+
         <section class="card span-columns preview-card">
           <div class="section-header">
             <h2>Camera preview placement</h2>

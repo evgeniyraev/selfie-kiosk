@@ -10,6 +10,11 @@ const DEFAULT_RECTANGLE_WIDTH_RATIO = 0.9;
 const DEFAULT_RECTANGLE_HEIGHT_RATIO = 0.75;
 const DEFAULT_RECTANGLE_TOP_PX = 157;
 const STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
+const DEFAULT_WORKING_HOURS = {
+  enabled: false,
+  start: "09:00",
+  end: "21:00",
+};
 
 const DEFAULT_PRINTER = {
   deviceName: "",
@@ -85,6 +90,9 @@ const defaultConfig = {
   printer: {
     ...DEFAULT_PRINTER,
   },
+  workingHours: {
+    ...DEFAULT_WORKING_HOURS,
+  },
   mirrorCamera: true,
   santaOverlays: [],
 };
@@ -135,6 +143,7 @@ const mergeWithDefaults = (partialConfig = {}) => {
       ...defaultConfig.capture,
       ...(partialConfig.capture || {}),
     },
+    workingHours: normalizeWorkingHours(partialConfig.workingHours),
   };
 
   if (!merged.previewVisibility.startMs && partialConfig.capture?.previewAtMs) {
@@ -378,6 +387,36 @@ const dedupeStrings = (list = []) => {
     }
   });
   return result;
+};
+
+const normalizeTimeString = (value, fallback) => {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (!match) {
+    return fallback;
+  }
+  let hours = Number(match[1]);
+  let minutes = Number(match[2]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return fallback;
+  }
+  hours = Math.min(Math.max(hours, 0), 23);
+  minutes = Math.min(Math.max(minutes, 0), 59);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const normalizeWorkingHours = (value = {}) => {
+  const enabled = Boolean(value?.enabled);
+  const start = normalizeTimeString(value?.start, DEFAULT_WORKING_HOURS.start);
+  const end = normalizeTimeString(value?.end, DEFAULT_WORKING_HOURS.end);
+  return {
+    enabled,
+    start,
+    end,
+  };
 };
 
 const loadConfig = () => {

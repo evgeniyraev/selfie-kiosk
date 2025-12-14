@@ -59,6 +59,9 @@
     paperWidthInput: qs('#paperWidthInput'),
     paperHeightInput: qs('#paperHeightInput'),
     sheetsInput: qs('#sheetsInput'),
+    workingHoursEnabledInput: qs('#workingHoursEnabled'),
+    workingStartInput: qs('#workingStartInput'),
+    workingEndInput: qs('#workingEndInput'),
     startCameraOverlayBtn: qs('#startCameraOverlayBtn'),
     stopCameraOverlayBtn: qs('#stopCameraOverlayBtn'),
     cameraOverlayStatus: qs('#cameraOverlayStatus'),
@@ -281,6 +284,37 @@
       });
     }
 
+    if (elements.workingHoursEnabledInput) {
+      elements.workingHoursEnabledInput.addEventListener('change', () => {
+        if (!state.config) {
+          return;
+        }
+        ensureWorkingHoursConfig();
+        state.config.workingHours.enabled = elements.workingHoursEnabledInput.checked;
+        renderWorkingHours();
+      });
+    }
+
+    ['workingStartInput', 'workingEndInput'].forEach((key) => {
+      const input = elements[key];
+      if (!input) {
+        return;
+      }
+      input.addEventListener('input', () => {
+        if (!state.config) {
+          return;
+        }
+        ensureWorkingHoursConfig();
+        const normalized = normalizeTimeValue(input.value, key === 'workingStartInput');
+        if (key === 'workingStartInput') {
+          state.config.workingHours.start = normalized;
+        } else {
+          state.config.workingHours.end = normalized;
+        }
+        renderWorkingHours();
+      });
+    });
+
     elements.handles.forEach((handle) => {
       handle.addEventListener('pointerdown', (event) => {
         if (!state.config || !state.isAdjustingQuad) {
@@ -427,6 +461,7 @@
     renderResultTimer();
     renderPrinterConfig();
     renderBackupConfig();
+    renderWorkingHours();
     updateCameraOverlayControls();
     updateStageMedia();
     syncTimelineMeta();
@@ -606,6 +641,39 @@
       }
     });
     return next;
+  };
+
+  const ensureWorkingHoursConfig = () => {
+    if (!state.config) {
+      return;
+    }
+    if (!state.config.workingHours) {
+      state.config.workingHours = {
+        enabled: false,
+        start: '09:00',
+        end: '21:00'
+      };
+    }
+  };
+
+  const normalizeTimeValue = (value, isStart) => {
+    const fallback = isStart ? '09:00' : '21:00';
+    if (typeof value !== 'string') {
+      return fallback;
+    }
+    const trimmed = value.trim();
+    const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+    if (!match) {
+      return fallback;
+    }
+    let hours = Number(match[1]);
+    let minutes = Number(match[2]);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return fallback;
+    }
+    hours = Math.min(Math.max(hours, 0), 23);
+    minutes = Math.min(Math.max(minutes, 0), 59);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   };
 
   const removeVideoAtIndex = (type, index) => {
@@ -872,6 +940,23 @@
         elements.backupPathHint.textContent =
           'Using the default kiosk data folder for backups.';
       }
+    }
+  };
+
+  const renderWorkingHours = () => {
+    ensureWorkingHoursConfig();
+    const config =
+      state.config?.workingHours || { enabled: false, start: '09:00', end: '21:00' };
+    if (elements.workingHoursEnabledInput) {
+      elements.workingHoursEnabledInput.checked = Boolean(config.enabled);
+    }
+    if (elements.workingStartInput) {
+      elements.workingStartInput.value = config.start || '09:00';
+      elements.workingStartInput.disabled = !config.enabled;
+    }
+    if (elements.workingEndInput) {
+      elements.workingEndInput.value = config.end || '21:00';
+      elements.workingEndInput.disabled = !config.enabled;
     }
   };
 
