@@ -16,12 +16,7 @@ body {
 }
 
 body[data-flow="result"] {
-    background: radial-gradient(
-        circle at top,
-        #fefefe 0%,
-        #f3f3f3 70%,
-        #ececec 100%
-    );
+    background: white;
     color: #120b04;
 }
 
@@ -149,12 +144,13 @@ body[data-flow="result"] .video-stage {
     gap: 32px;
     align-items: center;
     z-index: 3;
+    background: white;
 }
 
 .result-frame {
     width: 100%;
     border-radius: 36px;
-    background: #ffffff;
+    background: white;
     box-shadow: 0 35px 90px rgba(0, 0, 0, 0.2);
 }
 
@@ -233,7 +229,8 @@ body[data-flow="result"] .video-stage {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25);
+    background-color: unset;
+    /* box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25); */
     transition:
         transform 0.1s ease,
         filter 0.1s ease;

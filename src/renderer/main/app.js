@@ -1,7 +1,8 @@
 (() => {
   const SETTINGS_HOLD_MS = 5000;
   const RETRY_LEAD_MS = 5000;
-  const SHARE_UPLOAD_ENDPOINT = "https://interactivebulgaria.bg/server/upload.php";
+  const SHARE_UPLOAD_ENDPOINT =
+    "https://interactivebulgaria.bg/server/upload.php";
   const SHARE_DEFAULT_STATUS = 'Tap "Show QR" to generate a download link.';
 
   const state = {
@@ -23,7 +24,7 @@
     qrVisible: false,
     shareUploadPromise: null,
     isProduction: Boolean(window.kioskAPI?.isProduction),
-    lastOverlayPath: ""
+    lastOverlayPath: "",
   };
 
   const areArraysEqual = (a = [], b = []) => {
@@ -122,10 +123,8 @@
     }
     elements.qrToggleBtn.disabled = isBusy;
     if (isBusy && label) {
-      elements.qrToggleBtn.textContent = label;
       return;
     }
-    elements.qrToggleBtn.textContent = state.qrVisible ? "Hide QR" : "Show QR";
   };
 
   const backupPhotoLocally = async (imageDataUrl, reason) => {
@@ -526,7 +525,10 @@
 
   const scheduleAutoResetTimer = () => {
     clearAutoResetTimer();
-    state.autoResetTimer = setTimeout(() => resetFlow(), getAutoResetDuration());
+    state.autoResetTimer = setTimeout(
+      () => resetFlow(),
+      getAutoResetDuration(),
+    );
   };
 
   const restartAutoResetTimer = () => {
@@ -578,8 +580,7 @@
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        const message =
-          payload?.error || `Upload failed (${response.status}).`;
+        const message = payload?.error || `Upload failed (${response.status}).`;
         throw new Error(message);
       }
       if (!payload?.downloadUrl) {
@@ -878,11 +879,6 @@
     if (elements.qrDrawer) {
       elements.qrDrawer.classList.toggle("hidden", !state.qrVisible);
     }
-    if (elements.qrToggleBtn) {
-      elements.qrToggleBtn.textContent = state.qrVisible
-        ? "Hide QR"
-        : "Show QR";
-    }
   };
 
   const prepareIdleVideo = ({ forceDifferent = false } = {}) => {
@@ -1098,7 +1094,7 @@
     ctx.translate(width / 2, height / 2);
     ctx.rotate(Math.PI / 2);
     ctx.translate(-height / 2, -width / 2);
-    drawContainImage(ctx, photo, height, width);
+    drawCoverImage(ctx, photo, height, width);
     ctx.restore();
 
     return canvas.toDataURL("image/png");
@@ -1145,7 +1141,8 @@
       return { width: 1, height: 1 };
     }
     const width = image.videoWidth || image.naturalWidth || image.width || 1;
-    const height = image.videoHeight || image.naturalHeight || image.height || 1;
+    const height =
+      image.videoHeight || image.naturalHeight || image.height || 1;
     return { width, height };
   };
 
@@ -1153,8 +1150,12 @@
     if (!ctx || !image) {
       return;
     }
-    const { width: sourceWidth, height: sourceHeight } = getImageDimensions(image);
-    const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
+    const { width: sourceWidth, height: sourceHeight } =
+      getImageDimensions(image);
+    const scale = Math.max(
+      targetWidth / sourceWidth,
+      targetHeight / sourceHeight,
+    );
     const drawWidth = sourceWidth * scale;
     const drawHeight = sourceHeight * scale;
     const offsetX = (targetWidth - drawWidth) / 2;
@@ -1166,8 +1167,12 @@
     if (!ctx || !image) {
       return;
     }
-    const { width: sourceWidth, height: sourceHeight } = getImageDimensions(image);
-    const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+    const { width: sourceWidth, height: sourceHeight } =
+      getImageDimensions(image);
+    const scale = Math.min(
+      targetWidth / sourceWidth,
+      targetHeight / sourceHeight,
+    );
     const drawWidth = sourceWidth * scale;
     const drawHeight = sourceHeight * scale;
     const offsetX = (targetWidth - drawWidth) / 2;
