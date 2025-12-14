@@ -1501,7 +1501,7 @@
     const photo = await loadImage(state.lastPhotoDataUrl);
     ctx.save();
     ctx.translate(canvasWidth / 2, canvasHeight / 2);
-    // ctx.rotate(Math.PI / 2);
+    ctx.rotate(Math.PI / 2);
     ctx.translate(-canvasHeight / 2, -canvasWidth / 2);
     drawCoverImage(ctx, photo, canvasHeight, canvasWidth);
     ctx.restore();
