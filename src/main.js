@@ -281,7 +281,7 @@ const printImage = async (imageDataUrl, printer) => {
   <head>
     <meta charset="utf-8" />
     <style>
-      @page { size: ${heightMm}mm ${widthMm}mm portrait; margin: 0;  }
+      @page { size: ${heightMm}mm ${widthMm}mm portrait; margin: 0; padding: 0;  }
       html, body {
         width: 100%;
         height: 100%;
@@ -293,6 +293,8 @@ const printImage = async (imageDataUrl, printer) => {
         width: 100%;
         height: 100%;
         display: block;
+        margin: 0;
+        padding: 0;
       }
     </style>
   </head>

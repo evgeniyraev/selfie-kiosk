@@ -80,9 +80,16 @@
                                 id="qrPreview"
                                 class="qr-preview"
                                 alt="QR code"
+                                data-ready="false"
                             />
                             <div class="qr-text">
-                                <p>Санирай за да изтеглиш снимката</p>
+                                <p id="qrStatus" class="qr-status"></p>
+                                <div id="qrProgress" class="qr-progress hidden">
+                                    <div
+                                        id="qrProgressBar"
+                                        class="qr-progress-bar"
+                                    ></div>
+                                </div>
                             </div>
                         </div>
                     </div>

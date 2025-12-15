@@ -4,8 +4,11 @@
   const SHARE_UPLOAD_ENDPOINT =
     "https://interactivebulgaria.bg/server/upload.php";
   const SHARE_DEFAULT_STATUS = 'Tap "Show QR" to generate a download link.';
+  const SHARE_READY_STATUS = "Санирай за да изтеглиш снимката";
   const IDLE_LOCK_HOLD_MS = 5000;
   const NOTICE_AUTO_HIDE_MS = 5000;
+  const QR_PROGRESS_TICK_MS = 200;
+  const QR_PROGRESS_MAX_BEFORE_COMPLETE = 0.92;
   const DEFAULT_CAMERA_CROP = { x: 0, y: 0, width: 1, height: 1 };
   const MIN_CAMERA_CROP_EDGE = 0.05;
 
@@ -27,6 +30,9 @@
     settingsHoldTimer: null,
     qrVisible: false,
     shareUploadPromise: null,
+    qrUploadInProgress: false,
+    qrProgressTimer: null,
+    qrProgressValue: 0,
     isProduction: Boolean(window.kioskAPI?.isProduction),
     lastOverlayPath: "",
     idleHoldTimer: null,
@@ -68,8 +74,9 @@
     resultPhoto: document.getElementById("resultPhoto"),
     resultOverlay: document.getElementById("resultOverlay"),
     qrPreview: document.getElementById("qrPreview"),
-    shareLink: document.getElementById("shareLink"),
     qrStatus: document.getElementById("qrStatus"),
+    qrProgress: document.getElementById("qrProgress"),
+    qrProgressBar: document.getElementById("qrProgressBar"),
     printBtn: document.getElementById("printBtn"),
     retryBtn: document.getElementById("retryBtn"),
     qrToggleBtn: document.getElementById("qrToggleBtn"),
@@ -92,30 +99,103 @@
     }
   };
 
-  const updateShareLinkDisplay = (link) => {
-    if (!elements.shareLink) {
+  const setQrPreviewReady = (isReady) => {
+    if (elements.qrPreview) {
+      elements.qrPreview.dataset.ready = isReady ? "true" : "false";
+    }
+  };
+
+  const setQrProgressValue = (value) => {
+    const clamped = Math.max(0, Math.min(1, Number(value) || 0));
+    state.qrProgressValue = clamped;
+    if (elements.qrProgressBar) {
+      elements.qrProgressBar.style.width = `${clamped * 100}%`;
+    }
+  };
+
+  const resetQrUploadProgress = () => {
+    if (state.qrProgressTimer) {
+      clearInterval(state.qrProgressTimer);
+      state.qrProgressTimer = null;
+    }
+    state.qrUploadInProgress = false;
+    setQrProgressValue(0);
+    if (elements.qrProgress) {
+      elements.qrProgress.classList.add("hidden");
+    }
+  };
+
+  const startQrUploadProgress = () => {
+    resetQrUploadProgress();
+    state.qrUploadInProgress = true;
+    if (elements.qrProgress) {
+      elements.qrProgress.classList.remove("hidden");
+    }
+    setQrProgressValue(0.05);
+    state.qrProgressTimer = setInterval(() => {
+      const increment = 0.02 + Math.random() * 0.05;
+      const nextValue = Math.min(
+        QR_PROGRESS_MAX_BEFORE_COMPLETE,
+        state.qrProgressValue + increment,
+      );
+      setQrProgressValue(nextValue);
+      if (
+        nextValue >= QR_PROGRESS_MAX_BEFORE_COMPLETE &&
+        state.qrProgressTimer
+      ) {
+        clearInterval(state.qrProgressTimer);
+        state.qrProgressTimer = null;
+      }
+    }, QR_PROGRESS_TICK_MS);
+  };
+
+  const completeQrUploadProgress = () => {
+    if (state.qrProgressTimer) {
+      clearInterval(state.qrProgressTimer);
+      state.qrProgressTimer = null;
+    }
+    state.qrUploadInProgress = false;
+    if (elements.qrProgress) {
+      elements.qrProgress.classList.remove("hidden");
+    }
+    setQrProgressValue(1);
+  };
+
+  const clearQrAutoCloseTimer = () => {
+    if (state.qrAutoCloseTimer) {
+      clearTimeout(state.qrAutoCloseTimer);
+      state.qrAutoCloseTimer = null;
+    }
+    if (state.qrAutoCloseCountdownTimer) {
+      clearInterval(state.qrAutoCloseCountdownTimer);
+      state.qrAutoCloseCountdownTimer = null;
+    }
+    state.qrAutoCloseDeadline = null;
+  };
+
+  const updateQrAutoCloseStatus = () => {
+    if (!state.qrAutoCloseDeadline) {
       return;
     }
-    if (link) {
-      elements.shareLink.textContent = link;
-      elements.shareLink.href = link;
-    } else {
-      elements.shareLink.textContent = "";
-      elements.shareLink.removeAttribute("href");
-    }
+    const remainingMs = Math.max(0, state.qrAutoCloseDeadline - Date.now());
+    const remainingSeconds = Math.ceil(remainingMs / 1000);
+    const suffix =
+      remainingSeconds > 0 ? `Closing in ${remainingSeconds}s.` : "Closing…";
+    setQRStatus(`Scan the code or tap the link to download. ${suffix}`);
   };
 
   const clearQrPreview = () => {
     if (elements.qrPreview) {
       elements.qrPreview.removeAttribute("src");
     }
+    setQrPreviewReady(false);
   };
 
   const resetShareState = () => {
     state.shareLink = "";
     state.shareUploadPromise = null;
     clearQrPreview();
-    updateShareLinkDisplay("");
+    resetQrUploadProgress();
     setQRStatus(SHARE_DEFAULT_STATUS);
   };
 
@@ -933,15 +1013,15 @@
   };
 
   const renderShareArtifacts = async (shareLink) => {
-    updateShareLinkDisplay(shareLink);
     try {
       const qrDataUrl = await window.kioskAPI.generateQRCode(shareLink);
       if (elements.qrPreview) {
         elements.qrPreview.src = qrDataUrl;
       }
+      setQrPreviewReady(true);
     } catch (error) {
       console.warn("Failed to generate QR", error);
-      setQRStatus("Link ready. Reopen to refresh the QR code.");
+      setQRStatus("Неуспешно генериране на QR кода. Опитайте отново.");
     }
   };
 
@@ -1249,29 +1329,54 @@
     if (!state.lastPhotoDataUrl) {
       return;
     }
-    restartAutoResetTimer();
-    if (state.qrVisible) {
+    if (state.flow === "result") {
+      clearAutoResetTimer();
+    }
+    if (state.qrVisible && !state.qrUploadInProgress) {
       closeQRDrawer();
       return;
     }
+    if (state.qrUploadInProgress) {
+      return;
+    }
 
+    const hasShareLinkReady = Boolean(state.shareLink);
+    state.qrVisible = true;
+    applyQRDrawerState();
+    clearQrAutoCloseTimer();
     setQrButtonBusy(true, "Uploading…");
-    setQRStatus("Uploading photo…");
+    if (hasShareLinkReady) {
+      resetQrUploadProgress();
+    } else {
+      setQrPreviewReady(false);
+      setQRStatus("генериране на QR код");
+      startQrUploadProgress();
+    }
     try {
       const shareLink = await ensureShareLink();
       if (!shareLink) {
         throw new Error("Share link is unavailable.");
       }
       await renderShareArtifacts(shareLink);
+      if (state.qrUploadInProgress) {
+        completeQrUploadProgress();
+      } else {
+        resetQrUploadProgress();
+      }
+      if (state.flow !== "result") {
+        return;
+      }
       state.qrVisible = true;
       applyQRDrawerState();
-      setQRStatus("Scan the code or tap the link to download.");
+      setQRStatus(SHARE_READY_STATUS);
+      restartAutoResetTimer();
     } catch (error) {
       console.error("Failed to prepare QR link", error);
+      resetQrUploadProgress();
       const message =
-        error?.message ||
-        "Unable to upload photo. Check the internet connection and try again.";
+        error?.message || "проблем с качванто, моля опитайте отново";
       setQRStatus(message);
+      restartAutoResetTimer();
     } finally {
       setQrButtonBusy(false);
     }
@@ -1279,6 +1384,8 @@
 
   const closeQRDrawer = () => {
     state.qrVisible = false;
+    clearQrAutoCloseTimer();
+    resetQrUploadProgress();
     applyQRDrawerState();
   };
 
