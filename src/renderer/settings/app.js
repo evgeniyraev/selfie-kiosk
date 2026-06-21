@@ -1,5 +1,7 @@
 (() => {
   const DEFAULT_FRAME_RATE = 30;
+  const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+  const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm']);
 
   const state = {
     config: null,
@@ -12,6 +14,7 @@
     activeHandleEl: null,
     isAdjustingQuad: false,
     defaultBackupPath: "",
+    activeSettingsTab: "configuration",
     dragMode: null,
     dragStartPoint: null,
     initialQuad: null,
@@ -88,7 +91,38 @@
     cameraCropStage: qs('#cameraCropStage'),
     cameraCropVideo: qs('#cameraCropVideo'),
     cameraCropBox: qs('#cameraCropBox'),
-    cameraCropHandles: Array.from(document.querySelectorAll('.camera-crop-handle'))
+    cameraCropHandles: Array.from(document.querySelectorAll('.camera-crop-handle')),
+    settingsTabs: Array.from(document.querySelectorAll('[data-settings-tab]')),
+    tabPanels: Array.from(document.querySelectorAll('[data-tab-panel]')),
+    resultBackgroundTypeRadios: Array.from(document.querySelectorAll("input[name='resultBackgroundType']")),
+    resultBackgroundColorInput: qs('#resultBackgroundColorInput'),
+    resultBackgroundPreview: qs('#resultBackgroundPreview'),
+    resultBackgroundPath: qs('#resultBackgroundPath'),
+    chooseResultBackgroundBtn: qs('#chooseResultBackgroundBtn'),
+    clearResultBackgroundBtn: qs('#clearResultBackgroundBtn'),
+    resultBackgroundVideoPath: qs('#resultBackgroundVideoPath'),
+    chooseResultBackgroundVideoBtn: qs('#chooseResultBackgroundVideoBtn'),
+    clearResultBackgroundVideoBtn: qs('#clearResultBackgroundVideoBtn'),
+    resultTaglinePreview: qs('#resultTaglinePreview'),
+    resultTaglinePath: qs('#resultTaglinePath'),
+    resultTaglineVisibleInput: qs('#resultTaglineVisibleInput'),
+    chooseResultTaglineBtn: qs('#chooseResultTaglineBtn'),
+    clearResultTaglineBtn: qs('#clearResultTaglineBtn'),
+    qrButtonVisibleInput: qs('#qrButtonVisibleInput'),
+    retryButtonVisibleInput: qs('#retryButtonVisibleInput'),
+    printButtonVisibleInput: qs('#printButtonVisibleInput'),
+    qrButtonPreview: qs('#qrButtonPreview'),
+    retryButtonPreview: qs('#retryButtonPreview'),
+    printButtonPreview: qs('#printButtonPreview'),
+    qrButtonPath: qs('#qrButtonPath'),
+    retryButtonPath: qs('#retryButtonPath'),
+    printButtonPath: qs('#printButtonPath'),
+    chooseQrButtonBtn: qs('#chooseQrButtonBtn'),
+    chooseRetryButtonBtn: qs('#chooseRetryButtonBtn'),
+    choosePrintButtonBtn: qs('#choosePrintButtonBtn'),
+    clearQrButtonBtn: qs('#clearQrButtonBtn'),
+    clearRetryButtonBtn: qs('#clearRetryButtonBtn'),
+    clearPrintButtonBtn: qs('#clearPrintButtonBtn')
   };
   const defaultToastMessage = elements.toast?.textContent?.trim() || 'Settings saved';
 
@@ -122,6 +156,16 @@
   };
 
   const attachEvents = () => {
+    attachDropTargets();
+
+    if (elements.settingsTabs?.length) {
+      elements.settingsTabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          setActiveSettingsTab(tab.dataset.settingsTab || 'configuration');
+        });
+      });
+    }
+
     if (elements.addIdleVideosBtn) {
       elements.addIdleVideosBtn.addEventListener('click', () => {
         handleAddVideos('idle');
@@ -169,6 +213,83 @@
         renderBackupConfig();
       });
     }
+
+    if (elements.chooseResultBackgroundBtn) {
+      elements.chooseResultBackgroundBtn.addEventListener('click', () => chooseResultImage('backgroundImage'));
+    }
+
+    if (elements.clearResultBackgroundBtn) {
+      elements.clearResultBackgroundBtn.addEventListener('click', () => clearResultImage('backgroundImage'));
+    }
+
+    if (elements.chooseResultBackgroundVideoBtn) {
+      elements.chooseResultBackgroundVideoBtn.addEventListener('click', chooseResultBackgroundVideo);
+    }
+
+    if (elements.clearResultBackgroundVideoBtn) {
+      elements.clearResultBackgroundVideoBtn.addEventListener('click', clearResultBackgroundVideo);
+    }
+
+    if (elements.resultBackgroundTypeRadios?.length) {
+      elements.resultBackgroundTypeRadios.forEach((input) => {
+        input.addEventListener('change', () => {
+          if (!state.config || !input.checked) {
+            return;
+          }
+          const resultScreen = ensureResultScreenConfig();
+          resultScreen.backgroundType = input.value;
+          renderResultScreenArt();
+        });
+      });
+    }
+
+    if (elements.resultBackgroundColorInput) {
+      elements.resultBackgroundColorInput.addEventListener('input', () => {
+        if (!state.config) {
+          return;
+        }
+        const resultScreen = ensureResultScreenConfig();
+        resultScreen.backgroundColor = elements.resultBackgroundColorInput.value || '#ffffff';
+        resultScreen.backgroundType = 'color';
+        renderResultScreenArt();
+      });
+    }
+
+    if (elements.chooseResultTaglineBtn) {
+      elements.chooseResultTaglineBtn.addEventListener('click', () => chooseResultImage('taglineImage'));
+    }
+
+    if (elements.clearResultTaglineBtn) {
+      elements.clearResultTaglineBtn.addEventListener('click', () => clearResultImage('taglineImage'));
+    }
+
+    if (elements.resultTaglineVisibleInput) {
+      elements.resultTaglineVisibleInput.addEventListener('change', () => {
+        if (!state.config) {
+          return;
+        }
+        const resultScreen = ensureResultScreenConfig();
+        resultScreen.taglineVisible = elements.resultTaglineVisibleInput.checked;
+        renderResultScreenArt();
+      });
+    }
+
+    [
+      ['qr', elements.chooseQrButtonBtn, elements.clearQrButtonBtn, elements.qrButtonVisibleInput],
+      ['retry', elements.chooseRetryButtonBtn, elements.clearRetryButtonBtn, elements.retryButtonVisibleInput],
+      ['print', elements.choosePrintButtonBtn, elements.clearPrintButtonBtn, elements.printButtonVisibleInput]
+    ].forEach(([key, chooseBtn, clearBtn, visibleInput]) => {
+      chooseBtn?.addEventListener('click', () => chooseButtonImage(key));
+      clearBtn?.addEventListener('click', () => clearButtonImage(key));
+      visibleInput?.addEventListener('change', () => {
+        if (!state.config) {
+          return;
+        }
+        const button = ensureResultButtonConfig(key);
+        button.visible = visibleInput.checked;
+        renderResultScreenArt();
+      });
+    });
 
     elements.saveBtn.addEventListener('click', async () => {
       if (!state.config) {
@@ -496,14 +617,197 @@
     }
   };
 
+  const attachDropTargets = () => {
+    document.addEventListener('dragover', (event) => {
+      if (event.dataTransfer?.types?.includes('Files')) {
+        event.preventDefault();
+      }
+    });
+
+    document.addEventListener('drop', (event) => {
+      if (event.dataTransfer?.types?.includes('Files')) {
+        event.preventDefault();
+      }
+    });
+
+    document.querySelectorAll('[data-drop-target]').forEach((target) => {
+      ['dragenter', 'dragover'].forEach((eventName) => {
+        target.addEventListener(eventName, (event) => {
+          if (!event.dataTransfer?.types?.includes('Files')) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'copy';
+          target.classList.add('is-drag-over');
+        });
+      });
+
+      ['dragleave', 'dragend'].forEach((eventName) => {
+        target.addEventListener(eventName, () => {
+          target.classList.remove('is-drag-over');
+        });
+      });
+
+      target.addEventListener('drop', async (event) => {
+        if (!event.dataTransfer?.files?.length) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        target.classList.remove('is-drag-over');
+        await handleDroppedFiles(target, Array.from(event.dataTransfer.files));
+      });
+    });
+  };
+
+  const getExtension = (filePath = '') => {
+    const match = String(filePath).toLowerCase().match(/\.[^./\\]+$/);
+    return match ? match[0] : '';
+  };
+
+  const getDroppedPaths = async (files = []) => {
+    const paths = await Promise.all(
+      files.map(async (file) => {
+        if (!file) {
+          return '';
+        }
+        if (window.settingsAPI?.getDroppedFilePath) {
+          return window.settingsAPI.getDroppedFilePath(file);
+        }
+        return file.path || '';
+      })
+    );
+    return paths.filter((filePath) => typeof filePath === 'string' && filePath);
+  };
+
+  const filterDroppedPaths = (paths, extensions) =>
+    paths.filter((filePath) => extensions.has(getExtension(filePath)));
+
+  const getFirstDroppedPath = (paths, extensions) =>
+    filterDroppedPaths(paths, extensions)[0] || '';
+
+  const addDroppedOverlays = (paths) => {
+    const files = filterDroppedPaths(paths, IMAGE_EXTENSIONS);
+    if (!files.length) {
+      showToast('Drop PNG, JPG, or WebP images here.');
+      return;
+    }
+    const overlays = new Set(state.config.santaOverlays || []);
+    files.forEach((file) => overlays.add(file));
+    state.config.santaOverlays = Array.from(overlays);
+    renderOverlayList();
+    showToast('Overlay images added');
+  };
+
+  const applyDroppedResultImage = (fieldName, paths) => {
+    const file = getFirstDroppedPath(paths, IMAGE_EXTENSIONS);
+    if (!file) {
+      showToast('Drop a PNG, JPG, or WebP image here.');
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen[fieldName] = file;
+    if (fieldName === 'backgroundImage') {
+      resultScreen.backgroundType = 'image';
+    }
+    renderResultScreenArt();
+    showToast('Image applied');
+  };
+
+  const applyDroppedResultVideo = (paths) => {
+    const file = getFirstDroppedPath(paths, VIDEO_EXTENSIONS);
+    if (!file) {
+      showToast('Drop an MP4, MOV, or WebM video here.');
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen.backgroundVideo = file;
+    resultScreen.backgroundType = 'video';
+    renderResultScreenArt();
+    showToast('Video applied');
+  };
+
+  const applyDroppedButtonImage = (key, paths) => {
+    if (!key) {
+      return;
+    }
+    const file = getFirstDroppedPath(paths, IMAGE_EXTENSIONS);
+    if (!file) {
+      showToast('Drop a PNG, JPG, or WebP image here.');
+      return;
+    }
+    const button = ensureResultButtonConfig(key);
+    button.image = file;
+    renderResultScreenArt();
+    showToast('Button art applied');
+  };
+
+  const applyDroppedBackupDirectory = (paths) => {
+    const folder = paths[0] || '';
+    if (!folder) {
+      showToast('Drop a folder here.');
+      return;
+    }
+    state.config.backupDirectory = folder;
+    renderBackupConfig();
+    showToast('Backup folder applied');
+  };
+
+  const handleDroppedFiles = async (target, files) => {
+    if (!state.config) {
+      return;
+    }
+    const paths = await getDroppedPaths(files);
+    if (!paths.length) {
+      showToast('This drop did not include local file paths.');
+      return;
+    }
+
+    switch (target.dataset.dropTarget) {
+      case 'idle-videos':
+        addVideosFromPaths('idle', paths);
+        break;
+      case 'main-videos':
+        addVideosFromPaths('main', paths);
+        break;
+      case 'overlays':
+        addDroppedOverlays(paths);
+        break;
+      case 'backup-directory':
+        applyDroppedBackupDirectory(paths);
+        break;
+      case 'result-background': {
+        const firstVideo = getFirstDroppedPath(paths, VIDEO_EXTENSIONS);
+        if (firstVideo) {
+          applyDroppedResultVideo([firstVideo]);
+          break;
+        }
+        applyDroppedResultImage('backgroundImage', paths);
+        break;
+      }
+      case 'result-tagline':
+        applyDroppedResultImage('taglineImage', paths);
+        break;
+      case 'button-art':
+        applyDroppedButtonImage(target.dataset.buttonArt, paths);
+        break;
+      default:
+        break;
+    }
+  };
+
   const render = () => {
     ensureGlobalPreviewQuad();
     ensurePreviewVideoSelection();
     ensureActiveVideoSettings();
     ensureCameraCropConfig();
+    ensureResultScreenConfig();
+    renderTabs();
     renderVideoList('idle');
     renderVideoList('main');
     renderOverlayList();
+    renderResultScreenArt();
     renderQuad();
     renderCameraCrop();
     renderPreviewVisibility();
@@ -516,6 +820,230 @@
     syncTimelineMeta();
     updateQuadEditState();
     updateMirrorPreviewState();
+  };
+
+  const setActiveSettingsTab = (tabName) => {
+    state.activeSettingsTab = tabName || 'configuration';
+    renderTabs();
+  };
+
+  const renderTabs = () => {
+    const activeTab = state.activeSettingsTab || 'configuration';
+    elements.settingsTabs?.forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.settingsTab === activeTab);
+    });
+    elements.tabPanels?.forEach((panel) => {
+      panel.classList.toggle('hidden', panel.dataset.tabPanel !== activeTab);
+    });
+  };
+
+  const ensureResultScreenConfig = () => {
+    if (!state.config) {
+      return null;
+    }
+    const resultScreen = state.config.resultScreen || {};
+    resultScreen.backgroundType =
+      ['color', 'image', 'video'].includes(resultScreen.backgroundType)
+        ? resultScreen.backgroundType
+        : resultScreen.backgroundVideo
+          ? 'video'
+          : resultScreen.backgroundImage
+            ? 'image'
+            : 'color';
+    resultScreen.backgroundColor =
+      typeof resultScreen.backgroundColor === 'string' &&
+      /^#[0-9a-f]{6}$/i.test(resultScreen.backgroundColor)
+        ? resultScreen.backgroundColor
+        : '#ffffff';
+    resultScreen.backgroundImage =
+      typeof resultScreen.backgroundImage === 'string'
+        ? resultScreen.backgroundImage
+        : '';
+    resultScreen.backgroundVideo =
+      typeof resultScreen.backgroundVideo === 'string'
+        ? resultScreen.backgroundVideo
+        : '';
+    resultScreen.taglineImage =
+      typeof resultScreen.taglineImage === 'string'
+        ? resultScreen.taglineImage
+        : '';
+    resultScreen.taglineVisible =
+      typeof resultScreen.taglineVisible === 'boolean'
+        ? resultScreen.taglineVisible
+        : true;
+    resultScreen.buttons = resultScreen.buttons || {};
+    ['qr', 'retry', 'print'].forEach((key) => {
+      const existing = resultScreen.buttons[key] || {};
+      resultScreen.buttons[key] = {
+        visible:
+          typeof existing.visible === 'boolean' ? existing.visible : true,
+        image: typeof existing.image === 'string' ? existing.image : ''
+      };
+    });
+    state.config.resultScreen = resultScreen;
+    return resultScreen;
+  };
+
+  const ensureResultButtonConfig = (key) => {
+    const resultScreen = ensureResultScreenConfig();
+    if (!resultScreen) {
+      return { visible: true, image: '' };
+    }
+    return resultScreen.buttons[key];
+  };
+
+  const selectSingleImage = async () => {
+    if (!window.settingsAPI?.selectImages) {
+      return '';
+    }
+    const files = await window.settingsAPI.selectImages();
+    return files?.[0] || '';
+  };
+
+  const selectSingleVideo = async () => {
+    if (!window.settingsAPI?.selectVideos) {
+      return '';
+    }
+    const files = await window.settingsAPI.selectVideos();
+    return files?.[0] || '';
+  };
+
+  const chooseResultImage = async (fieldName) => {
+    if (!state.config) {
+      return;
+    }
+    const file = await selectSingleImage();
+    if (!file) {
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen[fieldName] = file;
+    if (fieldName === 'backgroundImage') {
+      resultScreen.backgroundType = 'image';
+    }
+    renderResultScreenArt();
+  };
+
+  const clearResultImage = (fieldName) => {
+    if (!state.config) {
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen[fieldName] = '';
+    if (fieldName === 'backgroundImage' && resultScreen.backgroundType === 'image') {
+      resultScreen.backgroundType = 'color';
+    }
+    renderResultScreenArt();
+  };
+
+  const chooseResultBackgroundVideo = async () => {
+    if (!state.config) {
+      return;
+    }
+    const file = await selectSingleVideo();
+    if (!file) {
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen.backgroundVideo = file;
+    resultScreen.backgroundType = 'video';
+    renderResultScreenArt();
+  };
+
+  const clearResultBackgroundVideo = () => {
+    if (!state.config) {
+      return;
+    }
+    const resultScreen = ensureResultScreenConfig();
+    resultScreen.backgroundVideo = '';
+    if (resultScreen.backgroundType === 'video') {
+      resultScreen.backgroundType = 'color';
+    }
+    renderResultScreenArt();
+  };
+
+  const chooseButtonImage = async (key) => {
+    if (!state.config) {
+      return;
+    }
+    const file = await selectSingleImage();
+    if (!file) {
+      return;
+    }
+    const button = ensureResultButtonConfig(key);
+    button.image = file;
+    renderResultScreenArt();
+  };
+
+  const clearButtonImage = (key) => {
+    if (!state.config) {
+      return;
+    }
+    const button = ensureResultButtonConfig(key);
+    button.image = '';
+    renderResultScreenArt();
+  };
+
+  const renderArtPreview = (previewEl, pathEl, filePath, fallbackText) => {
+    if (pathEl) {
+      pathEl.textContent = filePath || fallbackText;
+    }
+    if (!previewEl) {
+      return;
+    }
+    if (filePath) {
+      previewEl.src = fileToSrc(filePath);
+      previewEl.classList.remove('hidden');
+    } else {
+      previewEl.removeAttribute('src');
+      previewEl.classList.add('hidden');
+    }
+  };
+
+  const renderResultScreenArt = () => {
+    const resultScreen = ensureResultScreenConfig();
+    if (!resultScreen) {
+      return;
+    }
+    if (elements.resultBackgroundTypeRadios?.length) {
+      elements.resultBackgroundTypeRadios.forEach((input) => {
+        input.checked = input.value === resultScreen.backgroundType;
+      });
+    }
+    if (elements.resultBackgroundColorInput) {
+      elements.resultBackgroundColorInput.value = resultScreen.backgroundColor || '#ffffff';
+    }
+    renderArtPreview(
+      elements.resultBackgroundPreview,
+      elements.resultBackgroundPath,
+      resultScreen.backgroundImage,
+      'No image selected.'
+    );
+    if (elements.resultBackgroundVideoPath) {
+      elements.resultBackgroundVideoPath.textContent =
+        resultScreen.backgroundVideo || 'No video selected.';
+    }
+    if (elements.resultTaglineVisibleInput) {
+      elements.resultTaglineVisibleInput.checked = resultScreen.taglineVisible !== false;
+    }
+    renderArtPreview(
+      elements.resultTaglinePreview,
+      elements.resultTaglinePath,
+      resultScreen.taglineImage,
+      'Using bundled bottom logo.'
+    );
+
+    [
+      ['qr', elements.qrButtonVisibleInput, elements.qrButtonPreview, elements.qrButtonPath],
+      ['retry', elements.retryButtonVisibleInput, elements.retryButtonPreview, elements.retryButtonPath],
+      ['print', elements.printButtonVisibleInput, elements.printButtonPreview, elements.printButtonPath]
+    ].forEach(([key, input, preview, pathEl]) => {
+      const button = ensureResultButtonConfig(key);
+      if (input) {
+        input.checked = button.visible !== false;
+      }
+      renderArtPreview(preview, pathEl, button.image, 'Using bundled button art.');
+    });
   };
 
   const renderOverlayList = () => {
@@ -647,12 +1175,22 @@
     if (!files?.length) {
       return;
     }
+    addVideosFromPaths(type, files);
+  };
+
+  const addVideosFromPaths = (type, paths) => {
+    const files = filterDroppedPaths(paths, VIDEO_EXTENSIONS);
+    if (!files.length) {
+      showToast('Drop MP4, MOV, or WebM videos here.');
+      return;
+    }
     if (type === 'idle') {
       const current = Array.isArray(state.config.idleVideos)
         ? state.config.idleVideos
         : [];
       state.config.idleVideos = mergeMediaLists(current, files);
       renderVideoList('idle');
+      showToast('Videos added');
       return;
     }
 
@@ -666,6 +1204,7 @@
     updateStageMedia();
     renderQuad();
     renderPreviewVisibility();
+    showToast('Videos added');
   };
 
   const mergeMediaLists = (current = [], additions = []) => {

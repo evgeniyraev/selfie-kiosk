@@ -71,6 +71,8 @@
     webcamPreview: document.getElementById("webcamPreview"),
     previewOverlay: document.getElementById("previewOverlay"),
     resultPanel: document.getElementById("resultPanel"),
+    resultBackground: document.getElementById("resultBackground"),
+    resultBackgroundVideo: document.getElementById("resultBackgroundVideo"),
     resultPhoto: document.getElementById("resultPhoto"),
     resultOverlay: document.getElementById("resultOverlay"),
     qrPreview: document.getElementById("qrPreview"),
@@ -340,6 +342,7 @@
     elements.mainVideo.volume = 1;
     applyPreviewTransform();
     updatePreviewOverlay();
+    updateResultScreenArt();
     updateMirrorPreviewState();
     applyCameraCropPreviewStyles();
     updateSheetDisplay();
@@ -348,9 +351,9 @@
     refreshWorkingHoursState();
     startWorkingHoursMonitor();
     setPrintStatus(
-      state.config?.printer?.deviceName
-        ? ""
-        : "Configure printer in Settings to enable printing.",
+      isResultButtonVisible("print") && !state.config?.printer?.deviceName
+        ? "Configure printer in Settings to enable printing."
+        : "",
     );
     closeQRDrawer();
     resetFlow();
@@ -678,6 +681,13 @@
     );
 
     elements.resultPanel.classList.toggle("hidden", nextFlow !== "result");
+    if (elements.resultBackgroundVideo) {
+      if (nextFlow === "result" && !elements.resultBackgroundVideo.classList.contains("hidden")) {
+        elements.resultBackgroundVideo.play().catch(() => {});
+      } else {
+        elements.resultBackgroundVideo.pause();
+      }
+    }
     if (nextFlow !== "result") {
       closeQRDrawer();
     }
@@ -933,6 +943,89 @@
 
   const getAutoResetDuration = () =>
     Math.max(5000, state.config?.resultScreen?.autoResetMs ?? 20000);
+
+  const getResultScreenConfig = () => state.config?.resultScreen || {};
+
+  const getResultButtonConfig = (key) =>
+    getResultScreenConfig().buttons?.[key] || { visible: true, image: "" };
+
+  const isResultButtonVisible = (key) =>
+    getResultButtonConfig(key).visible !== false;
+
+  const getCustomArtSrc = (filePath) => {
+    if (!filePath || typeof filePath !== "string") {
+      return "";
+    }
+    return toFileSrc(filePath);
+  };
+
+  const setButtonCustomArt = (button, filePath) => {
+    if (!button) {
+      return;
+    }
+    const src = getCustomArtSrc(filePath);
+    button.style.backgroundImage = src ? `url("${src}")` : "";
+  };
+
+  const updateResultScreenArt = () => {
+    const resultScreen = getResultScreenConfig();
+    const backgroundType = resultScreen.backgroundType || "color";
+    const backgroundColor = resultScreen.backgroundColor || "#ffffff";
+    const backgroundImageSrc = getCustomArtSrc(resultScreen.backgroundImage);
+    const backgroundVideoSrc = getCustomArtSrc(resultScreen.backgroundVideo);
+    if (elements.resultPanel) {
+      elements.resultPanel.style.backgroundColor = backgroundColor;
+    }
+    if (elements.resultBackground) {
+      if (backgroundType === "image" && backgroundImageSrc) {
+        elements.resultBackground.src = backgroundImageSrc;
+        elements.resultBackground.classList.remove("hidden");
+      } else {
+        elements.resultBackground.removeAttribute("src");
+        elements.resultBackground.classList.add("hidden");
+      }
+    }
+    if (elements.resultBackgroundVideo) {
+      if (backgroundType === "video" && backgroundVideoSrc) {
+        if (elements.resultBackgroundVideo.src !== backgroundVideoSrc) {
+          elements.resultBackgroundVideo.src = backgroundVideoSrc;
+        }
+        elements.resultBackgroundVideo.classList.remove("hidden");
+        if (state.flow === "result") {
+          elements.resultBackgroundVideo.play().catch(() => {});
+        }
+      } else {
+        elements.resultBackgroundVideo.pause();
+        elements.resultBackgroundVideo.removeAttribute("src");
+        elements.resultBackgroundVideo.load();
+        elements.resultBackgroundVideo.classList.add("hidden");
+      }
+    }
+
+    const taglineSrc = getCustomArtSrc(resultScreen.taglineImage);
+    const tagline = document.querySelector(".result-tagline");
+    if (tagline) {
+      tagline.src = taglineSrc || "../../assets/LogoAlfa_000.png";
+      tagline.classList.toggle("hidden", resultScreen.taglineVisible === false);
+    }
+
+    [
+      ["qr", elements.qrToggleBtn],
+      ["retry", elements.retryBtn],
+      ["print", elements.printBtn],
+    ].forEach(([key, button]) => {
+      const buttonConfig = getResultButtonConfig(key);
+      setButtonCustomArt(button, buttonConfig.image);
+      if (button) {
+        button.classList.toggle("hidden", buttonConfig.visible === false);
+      }
+    });
+
+    if (!isResultButtonVisible("qr")) {
+      closeQRDrawer();
+    }
+    updatePrintButtonState();
+  };
 
   const clearAutoResetTimer = () => {
     if (state.autoResetTimer) {
@@ -1326,6 +1419,9 @@
   const mirrorCameraEnabled = () => state.config?.mirrorCamera !== false;
 
   const handleQrToggle = async () => {
+    if (!isResultButtonVisible("qr")) {
+      return;
+    }
     if (!state.lastPhotoDataUrl) {
       return;
     }
@@ -1502,6 +1598,13 @@
   };
 
   const updatePrintButtonState = () => {
+    if (!elements.printBtn) {
+      return;
+    }
+    if (!isResultButtonVisible("print")) {
+      elements.printBtn.disabled = true;
+      return;
+    }
     const hasPrinter = Boolean(state.config?.printer?.deviceName);
     const hasPhoto = Boolean(state.lastPhotoDataUrl);
     elements.printBtn.disabled = !hasPrinter || !hasPhoto || state.isPrinting;
@@ -1515,6 +1618,9 @@
   };
 
   const handlePrint = async () => {
+    if (!isResultButtonVisible("print")) {
+      return;
+    }
     if (!state.lastPhotoDataUrl || state.isPrinting) {
       return;
     }
@@ -1552,6 +1658,9 @@
   };
 
   const handleRetry = () => {
+    if (!isResultButtonVisible("retry")) {
+      return;
+    }
     if (!hasValidConfig(state.config)) {
       toggleMessage(true, "Configure sources before starting.");
       return;

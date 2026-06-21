@@ -117,6 +117,26 @@ const defaultConfig = {
   },
   resultScreen: {
     autoResetMs: 20000,
+    backgroundType: "color",
+    backgroundColor: "#ffffff",
+    backgroundImage: "",
+    backgroundVideo: "",
+    taglineImage: "",
+    taglineVisible: true,
+    buttons: {
+      qr: {
+        visible: true,
+        image: "",
+      },
+      retry: {
+        visible: true,
+        image: "",
+      },
+      print: {
+        visible: true,
+        image: "",
+      },
+    },
   },
   capture: {
     captureAtMs: 8500,
@@ -172,10 +192,7 @@ const mergeWithDefaults = (partialConfig = {}) => {
       ...defaultConfig.previewVisibility,
       ...(partialConfig.previewVisibility || {}),
     },
-    resultScreen: {
-      ...defaultConfig.resultScreen,
-      ...(partialConfig.resultScreen || {}),
-    },
+    resultScreen: normalizeResultScreen(partialConfig.resultScreen),
     printer: printerConfig,
     capture: {
       ...defaultConfig.capture,
@@ -207,8 +224,8 @@ const mergeWithDefaults = (partialConfig = {}) => {
     defaultConfig.previewVisibility.frameRate;
   merged.previewVisibility.frameRate = clampNumber(frameRate, 1, 240);
 
-  normalizeMediaList(merged, "idleVideos", "idleVideo");
-  merged.mainVideos = normalizeMainVideos(merged);
+  normalizeMediaList(merged, partialConfig, "idleVideos", "idleVideo");
+  merged.mainVideos = normalizeMainVideos(merged, partialConfig);
   merged.mainVideo = merged.mainVideos[0]?.path || "";
   merged.mirrorCamera =
     typeof partialConfig.mirrorCamera === "boolean"
@@ -296,10 +313,13 @@ const clampNumber = (value, min, max) => {
   return Math.min(Math.max(value, min), max);
 };
 
-const normalizeMediaList = (config, listKey, singleKey) => {
+const normalizeMediaList = (config, sourceConfig, listKey, singleKey) => {
+  const hasExplicitList = Array.isArray(sourceConfig[listKey]);
   const listValue = toStringArray(config[listKey]);
   const singleValue =
-    typeof config[singleKey] === "string" && config[singleKey]
+    !hasExplicitList &&
+    typeof config[singleKey] === "string" &&
+    config[singleKey]
       ? [config[singleKey]]
       : [];
   const normalized = dedupeStrings([...singleValue, ...listValue]);
@@ -307,10 +327,11 @@ const normalizeMediaList = (config, listKey, singleKey) => {
   config[singleKey] = normalized[0] || "";
 };
 
-const normalizeMainVideos = (config) => {
+const normalizeMainVideos = (config, sourceConfig) => {
   const fallbackVisibility =
     config.previewVisibility || defaultConfig.previewVisibility;
   const list = Array.isArray(config.mainVideos) ? config.mainVideos : [];
+  const hasExplicitList = Array.isArray(sourceConfig.mainVideos);
   const normalized = [];
   const seen = new Map();
 
@@ -330,7 +351,11 @@ const normalizeMainVideos = (config) => {
 
   list.forEach(addEntry);
 
-  if (typeof config.mainVideo === "string" && config.mainVideo) {
+  if (
+    !hasExplicitList &&
+    typeof config.mainVideo === "string" &&
+    config.mainVideo
+  ) {
     addEntry(config.mainVideo);
   }
 
@@ -457,6 +482,68 @@ const normalizeWorkingHours = (value = {}) => {
     enabled,
     start,
     end,
+  };
+};
+
+const normalizePathString = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const normalizeColorString = (value, fallback = "#ffffff") => {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : fallback;
+};
+
+const normalizeBackgroundType = (value, resultScreen = {}) => {
+  if (value === "color" || value === "image" || value === "video") {
+    return value;
+  }
+  if (normalizePathString(resultScreen.backgroundVideo)) {
+    return "video";
+  }
+  if (normalizePathString(resultScreen.backgroundImage)) {
+    return "image";
+  }
+  return "color";
+};
+
+const normalizeResultButton = (value = {}, fallback = {}) => ({
+  visible:
+    typeof value?.visible === "boolean"
+      ? value.visible
+      : fallback.visible !== false,
+  image: normalizePathString(value?.image),
+});
+
+const normalizeResultScreen = (value = {}) => {
+  const fallback = defaultConfig.resultScreen;
+  const buttons = value?.buttons || {};
+  return {
+    ...fallback,
+    ...value,
+    autoResetMs:
+      typeof value?.autoResetMs === "number"
+        ? Math.max(5000, value.autoResetMs)
+        : fallback.autoResetMs,
+    backgroundType: normalizeBackgroundType(value?.backgroundType, value),
+    backgroundColor: normalizeColorString(
+      value?.backgroundColor,
+      fallback.backgroundColor,
+    ),
+    backgroundImage: normalizePathString(value?.backgroundImage),
+    backgroundVideo: normalizePathString(value?.backgroundVideo),
+    taglineImage: normalizePathString(value?.taglineImage),
+    taglineVisible:
+      typeof value?.taglineVisible === "boolean"
+        ? value.taglineVisible
+        : fallback.taglineVisible !== false,
+    buttons: {
+      qr: normalizeResultButton(buttons.qr, fallback.buttons.qr),
+      retry: normalizeResultButton(buttons.retry, fallback.buttons.retry),
+      print: normalizeResultButton(buttons.print, fallback.buttons.print),
+    },
   };
 };
 

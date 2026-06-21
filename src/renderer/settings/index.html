@@ -20,22 +20,27 @@
         </div>
       </header>
 
-      <main class="settings-grid">
-        <section class="card">
+      <nav class="settings-tabs" aria-label="Settings sections">
+        <button class="settings-tab active" type="button" data-settings-tab="configuration">Configuration</button>
+        <button class="settings-tab" type="button" data-settings-tab="screen-art">Screen art</button>
+      </nav>
+
+      <main class="settings-grid tab-panel" data-tab-panel="configuration">
+        <section class="card drop-target" data-drop-target="idle-videos" data-drop-label="Drop videos here">
           <h2>Idle videos</h2>
           <p class="helper">Add multiple portrait idle loops. The kiosk will pick one randomly whenever it returns to attract mode.</p>
           <div id="idleVideoList" class="media-list"></div>
           <button id="addIdleVideosBtn" class="card-action">Add idle videos</button>
         </section>
 
-        <section class="card">
+        <section class="card drop-target" data-drop-target="main-videos" data-drop-label="Drop videos here">
           <h2>Main experience videos</h2>
           <p class="helper">Upload the guided experience videos. A random one is selected for each capture session.</p>
           <div id="mainVideoList" class="media-list"></div>
           <button id="addMainVideosBtn" class="card-action">Add main experience videos</button>
         </section>
 
-        <section class="card">
+        <section class="card drop-target" data-drop-target="overlays" data-drop-label="Drop images here">
           <h2>Santa overlays</h2>
           <p class="helper">Upload PNGs with transparent backgrounds to decorate captured selfies.</p>
           <div id="overlayList" class="overlay-list"></div>
@@ -74,7 +79,7 @@
           <small class="helper">Update sheets remaining whenever you reload the Mitsubishi CP-M1 cassette.</small>
         </section>
 
-        <section class="card">
+        <section class="card drop-target" data-drop-target="backup-directory" data-drop-label="Drop folder here">
           <h2>Backups</h2>
           <p class="helper">Every print and QR upload is saved to disk for safekeeping.</p>
           <div class="field">
@@ -212,6 +217,109 @@
             </div>
           </div>
           <small class="helper">Drag the rectangle to move it. Use the corner handles to resize.</small>
+        </section>
+      </main>
+
+      <main class="settings-grid tab-panel hidden" data-tab-panel="screen-art">
+        <section class="card span-columns">
+          <h2>Confirmation screen art</h2>
+          <p class="helper">Choose external PNG/JPG/WebP files for the final confirmation screen. Empty fields use the bundled artwork.</p>
+          <div class="art-grid">
+            <div class="art-control drop-target" data-drop-target="result-background" data-drop-label="Drop image or video here">
+              <div>
+                <h3>Screen background</h3>
+                <p class="helper">Choose a solid color, portrait image, or looping video behind the captured photo and buttons.</p>
+              </div>
+              <div class="background-mode-options">
+                <label>
+                  <input type="radio" name="resultBackgroundType" value="color" />
+                  Color
+                </label>
+                <label>
+                  <input type="radio" name="resultBackgroundType" value="image" />
+                  Image
+                </label>
+                <label>
+                  <input type="radio" name="resultBackgroundType" value="video" />
+                  Video
+                </label>
+              </div>
+              <div class="field color-field">
+                <label for="resultBackgroundColorInput">Background color</label>
+                <input id="resultBackgroundColorInput" type="color" value="#ffffff" />
+              </div>
+              <img id="resultBackgroundPreview" class="art-preview portrait hidden" alt="Confirmation background preview" />
+              <div id="resultBackgroundPath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="chooseResultBackgroundBtn" type="button">Choose image</button>
+                <button id="clearResultBackgroundBtn" type="button" class="ghost">Clear image</button>
+              </div>
+              <div id="resultBackgroundVideoPath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="chooseResultBackgroundVideoBtn" type="button">Choose video</button>
+                <button id="clearResultBackgroundVideoBtn" type="button" class="ghost">Clear video</button>
+              </div>
+            </div>
+            <div class="art-control drop-target" data-drop-target="result-tagline" data-drop-label="Drop image here">
+              <div>
+                <h3>Bottom logo</h3>
+                <p class="helper">Optional replacement for the logo/tagline below the buttons.</p>
+              </div>
+              <label class="button-toggle">
+                <input type="checkbox" id="resultTaglineVisibleInput" />
+                Show logo
+              </label>
+              <img id="resultTaglinePreview" class="art-preview hidden" alt="Bottom logo preview" />
+              <div id="resultTaglinePath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="chooseResultTaglineBtn" type="button">Choose logo</button>
+                <button id="clearResultTaglineBtn" type="button" class="ghost">Use default</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card span-columns">
+          <h2>Confirmation buttons</h2>
+          <p class="helper">Enable or disable each button and optionally replace its image.</p>
+          <div class="button-art-grid">
+            <div class="button-art-card drop-target" data-drop-target="button-art" data-button-art="qr" data-drop-label="Drop image here">
+              <label class="button-toggle">
+                <input type="checkbox" id="qrButtonVisibleInput" />
+                Show QR button
+              </label>
+              <img id="qrButtonPreview" class="art-preview button-preview hidden" alt="QR button preview" />
+              <div id="qrButtonPath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="chooseQrButtonBtn" type="button">Choose art</button>
+                <button id="clearQrButtonBtn" type="button" class="ghost">Use default</button>
+              </div>
+            </div>
+            <div class="button-art-card drop-target" data-drop-target="button-art" data-button-art="retry" data-drop-label="Drop image here">
+              <label class="button-toggle">
+                <input type="checkbox" id="retryButtonVisibleInput" />
+                Show retry button
+              </label>
+              <img id="retryButtonPreview" class="art-preview button-preview hidden" alt="Retry button preview" />
+              <div id="retryButtonPath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="chooseRetryButtonBtn" type="button">Choose art</button>
+                <button id="clearRetryButtonBtn" type="button" class="ghost">Use default</button>
+              </div>
+            </div>
+            <div class="button-art-card drop-target" data-drop-target="button-art" data-button-art="print" data-drop-label="Drop image here">
+              <label class="button-toggle">
+                <input type="checkbox" id="printButtonVisibleInput" />
+                Show print/camera button
+              </label>
+              <img id="printButtonPreview" class="art-preview button-preview hidden" alt="Print button preview" />
+              <div id="printButtonPath" class="backup-path"></div>
+              <div class="backup-actions">
+                <button id="choosePrintButtonBtn" type="button">Choose art</button>
+                <button id="clearPrintButtonBtn" type="button" class="ghost">Use default</button>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
       <div id="saveToast" class="toast hidden">Settings saved</div>

@@ -139,20 +139,33 @@ body[data-flow="result"] .video-stage {
 .result-panel {
     text-align: center;
     position: absolute;
-    top: 3%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(90%, 1100px);
+    inset: 0;
+    width: 100%;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
     gap: 32px;
     align-items: center;
     z-index: 3;
     background: white;
+    overflow: hidden;
+    padding: 3vh 5vw 4vh;
+}
+
+.result-background {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    pointer-events: none;
 }
 
 .result-frame {
-    width: 100%;
+    position: relative;
+    z-index: 1;
+    width: min(90%, 1100px);
     border-radius: 36px;
     background: white;
     box-shadow: 0 35px 90px rgba(0, 0, 0, 0.2);
@@ -204,8 +217,10 @@ body[data-flow="result"] .video-stage {
 }
 
 .result-actions {
+    position: relative;
+    z-index: 1;
     width: 100%;
-    max-width: 900px;
+    max-width: 1000px;
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -214,17 +229,19 @@ body[data-flow="result"] .video-stage {
 
 .action-buttons {
     display: flex;
-    gap: 16px;
+    width: 100%;
+    gap: clamp(48px, 7.2vw, 78px);
     flex-wrap: wrap;
     justify-content: center;
 }
 
 .wood-button {
-    width: 200px;
-    height: 90px;
+    flex: 0 0 clamp(220px, 23.7vw, 256px);
+    width: clamp(220px, 23.7vw, 256px);
+    aspect-ratio: 4 / 3;
     border: none;
     border-radius: 24px;
-    background-size: cover;
+    background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
     font-size: 20px;
@@ -371,6 +388,8 @@ body[data-flow="result"] .video-stage {
 }
 
 .result-tagline {
+    position: relative;
+    z-index: 1;
     width: 85vw;
     height: auto;
     object-fit: contain;

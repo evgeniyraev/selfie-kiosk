@@ -1,6 +1,6 @@
 {
   "name": "christmass-selfy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Configurable holiday kiosk with selfie capture workflow powered by Electron.",
   "main": "src/main.js",
   "scripts": {

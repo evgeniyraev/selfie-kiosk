@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const videoFilters = [
   { name: 'Video', extensions: ['mp4', 'mov', 'webm'] }
@@ -37,6 +37,15 @@ contextBridge.exposeInMainWorld('settingsAPI', {
       directory: true
     });
     return selections?.[0] || '';
+  },
+  getDroppedFilePath: (file) => {
+    if (!file) {
+      return '';
+    }
+    if (webUtils?.getPathForFile) {
+      return webUtils.getPathForFile(file);
+    }
+    return file.path || '';
   },
   getDefaultBackupDir: () => ipcRenderer.invoke('backup:getDefaultDir'),
   reopenKioskFlow: () => ipcRenderer.send('kiosk:reset-flow'),
